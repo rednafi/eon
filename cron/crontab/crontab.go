@@ -152,15 +152,24 @@ func (c *Crontab) Delete(ctx context.Context, id string) error {
 
 // splitCrontabLine separates the schedule expression from the command. It
 // supports both 5-field and descriptor (@daily, @reboot, ...) syntax.
+// utf8BOM is the byte-order mark some editors prepend to UTF-8 files.
+// strings.TrimSpace doesn't remove it, so we strip it explicitly.
+const utf8BOM = "\uFEFF"
+
 func splitCrontabLine(line string) (schedule, command string, ok bool) {
-	line = strings.TrimSpace(line)
+	line = strings.TrimSpace(strings.TrimPrefix(line, utf8BOM))
 	if strings.HasPrefix(line, "@") {
-		// "@daily cmd" — schedule is the first token, command is the rest.
-		schedule, command, ok := strings.Cut(line, " ")
-		if !ok {
+		// "@daily<sep>cmd" — split on first run of whitespace (space OR tab),
+		// not just space; some editors save crontabs with TAB separators.
+		i := strings.IndexAny(line, " \t")
+		if i < 0 {
 			return "", "", false
 		}
-		return schedule, strings.TrimSpace(command), true
+		cmd := strings.TrimSpace(line[i:])
+		if cmd == "" {
+			return "", "", false
+		}
+		return line[:i], cmd, true
 	}
 	// 5 fields then command. Fields can contain commas/dashes/slashes but not
 	// spaces, so a simple field-walk is sufficient. We must use a C-style
