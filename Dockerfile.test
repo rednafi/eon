@@ -32,4 +32,7 @@ COPY --chown=tester:tester . .
 # their personal crontab.
 ENV EON_RUN_REAL_CRON=1
 
-CMD ["go", "test", "-race", "-count=1", "./..."]
+# `-p 1` runs packages serially. The integration tests in cli/ and origin/
+# both mutate the shared system crontab; running them concurrently causes
+# them to clobber each other.
+CMD ["go", "test", "-race", "-count=1", "-p", "1", "./..."]
