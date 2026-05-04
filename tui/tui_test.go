@@ -194,10 +194,10 @@ func TestModelHundredJobsScrolls(t *testing.T) {
 	}
 	m, _ := newTestModel(jobs...)
 	mm, _ := m.Update(jobsLoadedMsg{jobs: jobs})
-	for i := 0; i < 200; i++ {
+	for range 200 {
 		mm, _ = mm.Update(keyPress("down"))
 	}
-	for i := 0; i < 200; i++ {
+	for range 200 {
 		mm, _ = mm.Update(keyPress("up"))
 	}
 	if mm.(Model).cursor != 0 {

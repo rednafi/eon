@@ -119,13 +119,12 @@ func (m Model) bodyDims() (width, height, contentWidth int) {
 func (m Model) renderListPanel() string {
 	panelWidth, panelHeight, contentWidth := m.bodyDims()
 
-	cols := []string{"ID", "KIND", "NAME", "SCHEDULE", "STATUS"}
 	widths := m.colWidths
 	if widths == nil {
-		widths = computeColumnWidths(cols, m.jobs, contentWidth)
+		widths = computeColumnWidths(tableCols, m.jobs, contentWidth)
 	}
 	headerStyle := m.theme.HeaderCell
-	headerLine := renderRow(cols, widths, &headerStyle, nil)
+	headerLine := renderRow(tableCols, widths, &headerStyle, nil)
 	rule := m.theme.Subtle.Render(strings.Repeat("─", contentWidth))
 
 	listRows := panelHeight - panelChromeY - 2
@@ -142,9 +141,10 @@ func (m Model) renderListPanel() string {
 	rows := make([]string, 0, listRows)
 	for i := start; i < end; i++ {
 		j := m.jobs[m.visibleIdx[i]]
-		cells := []string{j.ID, string(j.Kind), j.Name, j.Schedule, j.Status}
+		cells := []string{j.ID, string(j.Scope), string(j.Kind), j.Name, j.Schedule, j.Status}
 		statusStyle := m.theme.statusStyle(j.Status)
-		overrides := []*lipgloss.Style{nil, nil, nil, nil, &statusStyle}
+		scopeStyle := m.theme.scopeStyle(j.Scope)
+		overrides := []*lipgloss.Style{nil, &scopeStyle, nil, nil, nil, &statusStyle}
 		line := renderRow(cells, widths, nil, overrides)
 		if i == m.cursor {
 			line = m.theme.Selected.Width(contentWidth).Render(line)
@@ -237,7 +237,8 @@ func (m Model) viewConfirm() string {
 
 func (m Model) renderTabs() string {
 	var out strings.Builder
-	for t := detailTab(0); t < tabCount; t++ {
+	for i := range int(tabCount) {
+		t := detailTab(i)
 		if t == m.detailTab {
 			out.WriteString(m.theme.TabActive.Render(t.String()))
 		} else {
@@ -375,15 +376,15 @@ func renderRow(cells []string, widths []int, base *lipgloss.Style, overrides []*
 }
 
 // computeColumnWidths sizes each column to its widest cell, then squeezes
-// ID → NAME → KIND if the row exceeds the available width. SCHEDULE/STATUS
-// stay at their natural width since they're short and most informative.
+// ID → NAME → KIND if the row exceeds the available width. Order is
+// [ID, SCOPE, KIND, NAME, SCHEDULE, STATUS] — must match cellsForJob.
 func computeColumnWidths(headers []string, jobs []cron.Job, available int) []int {
 	widths := make([]int, len(headers))
 	for i, h := range headers {
 		widths[i] = len(h)
 	}
 	for _, j := range jobs {
-		row := [5]string{j.ID, string(j.Kind), j.Name, j.Schedule, j.Status}
+		row := [6]string{j.ID, string(j.Scope), string(j.Kind), j.Name, j.Schedule, j.Status}
 		for i, c := range row {
 			if len(c) > widths[i] {
 				widths[i] = len(c)
@@ -395,7 +396,9 @@ func computeColumnWidths(headers []string, jobs []cron.Job, available int) []int
 	for _, w := range widths {
 		used += w
 	}
-	for _, idx := range []int{0, 2, 1} {
+	// Squeeze priority: ID (col 0), NAME (col 3), KIND (col 2). Skip SCOPE
+	// (col 1, fixed-vocab "user"/"system"), SCHEDULE, STATUS.
+	for _, idx := range []int{0, 3, 2} {
 		if used <= available {
 			break
 		}
@@ -434,15 +437,12 @@ func clamp(v, lo, hi int) int {
 	return v
 }
 
-func max(a, b int) int {
-	if a > b {
-		return a
-	}
-	return b
-}
-
 func (m *Model) recomputeColWidths() {
 	_, _, contentWidth := m.bodyDims()
-	cols := []string{"ID", "KIND", "NAME", "SCHEDULE", "STATUS"}
-	m.colWidths = computeColumnWidths(cols, m.jobs, contentWidth)
+	m.colWidths = computeColumnWidths(tableCols, m.jobs, contentWidth)
 }
+
+// tableCols is the canonical column order shared by computeColumnWidths and
+// renderListPanel. Keep them in sync — extending one without the other will
+// panic in production.
+var tableCols = []string{"ID", "SCOPE", "KIND", "NAME", "SCHEDULE", "STATUS"}

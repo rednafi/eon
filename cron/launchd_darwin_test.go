@@ -107,7 +107,7 @@ func TestLaunchdHundredJobs(t *testing.T) {
 	// behavior. We materialize 100 plists in a tmp dir, list them, then
 	// delete every other one and re-list.
 	dir := t.TempDir()
-	for i := 0; i < 100; i++ {
+	for i := range 100 {
 		label := fmt.Sprintf("com.eon.test.%03d", i)
 		path := filepath.Join(dir, label+".plist")
 		if err := os.WriteFile(path, []byte(minimalPlist(label, 30+i)), 0o600); err != nil {

@@ -7,6 +7,8 @@ package tui
 import (
 	"charm.land/lipgloss/v2"
 	"charm.land/lipgloss/v2/compat"
+
+	"github.com/rednafi/eon/cron"
 )
 
 func adaptive(light, dark string) compat.AdaptiveColor {
@@ -65,4 +67,13 @@ func (t theme) statusStyle(s string) lipgloss.Style {
 	default:
 		return t.StatusBad
 	}
+}
+
+// scopeStyle dims SYSTEM rows so user-scope crons read at a glance, and
+// keeps user rows in the accent palette.
+func (t theme) scopeStyle(s cron.Scope) lipgloss.Style {
+	if s == cron.ScopeSystem {
+		return t.Subtle
+	}
+	return t.HelpKey
 }

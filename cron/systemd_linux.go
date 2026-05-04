@@ -9,7 +9,8 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"sort"
+	"cmp"
+	"slices"
 	"strings"
 )
 
@@ -87,7 +88,7 @@ func (s *Systemd) List(ctx context.Context) ([]Job, error) {
 		}
 		jobs = append(jobs, j)
 	}
-	sort.Slice(jobs, func(i, k int) bool { return jobs[i].Name < jobs[k].Name })
+	slices.SortFunc(jobs, func(a, b Job) int { return cmp.Compare(a.Name, b.Name) })
 	return jobs, nil
 }
 

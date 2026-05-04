@@ -84,7 +84,7 @@ func TestSystemdDeleteRemovesUnits(t *testing.T) {
 
 func TestSystemdHundredTimers(t *testing.T) {
 	dir := t.TempDir()
-	for i := 0; i < 100; i++ {
+	for i := range 100 {
 		writePair(t, dir, fmt.Sprintf("eon-bulk-%03d", i))
 	}
 	src := &Systemd{Dir: dir, Tag: "test"}

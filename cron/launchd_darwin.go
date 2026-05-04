@@ -7,7 +7,8 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"sort"
+	"cmp"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -115,7 +116,7 @@ func (l *Launchd) List(ctx context.Context) ([]Job, error) {
 	if l.Runner != nil {
 		l.enrich(ctx, jobs)
 	}
-	sort.Slice(jobs, func(i, k int) bool { return jobs[i].Name < jobs[k].Name })
+	slices.SortFunc(jobs, func(a, b Job) int { return cmp.Compare(a.Name, b.Name) })
 	return jobs, nil
 }
 

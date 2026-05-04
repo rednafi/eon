@@ -155,22 +155,24 @@ func splitCrontabLine(line string) (schedule, command string, ok bool) {
 		}
 		return parts[0], strings.TrimSpace(parts[1]), true
 	}
-	// 5 fields then command. Fields can themselves contain commas/dashes/slashes
-	// but not spaces, so a simple field-by-field walk is sufficient.
+	// 5 fields then command. Fields can contain commas/dashes/slashes but not
+	// spaces, so a simple field-walk is sufficient. We must use a C-style
+	// loop here — `for i := range len(line)` ignores mutations to i, which we
+	// rely on for the whitespace skip.
 	fields := 0
 	for i := 0; i < len(line); i++ {
-		if line[i] == ' ' || line[i] == '\t' {
-			// Skip consecutive whitespace.
-			j := i
-			for j < len(line) && (line[j] == ' ' || line[j] == '\t') {
-				j++
-			}
-			fields++
-			if fields == 5 {
-				return strings.Join(strings.Fields(line[:i]), " "), strings.TrimSpace(line[j:]), true
-			}
-			i = j - 1
+		if line[i] != ' ' && line[i] != '\t' {
+			continue
 		}
+		j := i
+		for j < len(line) && (line[j] == ' ' || line[j] == '\t') {
+			j++
+		}
+		fields++
+		if fields == 5 {
+			return strings.Join(strings.Fields(line[:i]), " "), strings.TrimSpace(line[j:]), true
+		}
+		i = j - 1
 	}
 	return "", "", false
 }

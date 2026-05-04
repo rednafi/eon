@@ -8,7 +8,8 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"sort"
+	"cmp"
+	"slices"
 	"strings"
 	"time"
 
@@ -68,7 +69,7 @@ func (e *EtcCron) List(_ context.Context) ([]Job, error) {
 			}
 		}
 	}
-	sort.Slice(jobs, func(i, k int) bool { return jobs[i].ID < jobs[k].ID })
+	slices.SortFunc(jobs, func(a, b Job) int { return cmp.Compare(a.ID, b.ID) })
 	return jobs, nil
 }
 
