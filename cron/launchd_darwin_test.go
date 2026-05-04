@@ -1,6 +1,6 @@
 //go:build darwin
 
-package origin
+package cron
 
 import (
 	"context"

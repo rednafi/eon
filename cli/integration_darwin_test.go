@@ -11,7 +11,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/rednafi/eon/internal/origin"
+	"github.com/rednafi/eon/cron"
 )
 
 // TestCLIEndToEnd100Jobs simulates the user's stated requirement: "ensure
@@ -40,7 +40,7 @@ func TestCLIEndToEnd100Jobs(t *testing.T) {
 		}
 	}
 
-	mgr := origin.NewManager(&origin.Launchd{Dir: dir, Tag: "test"})
+	mgr := cron.NewManager(&cron.Launchd{Dir: dir, Tag: "test"})
 
 	// list — table output should reference every job.
 	var out bytes.Buffer

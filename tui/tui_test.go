@@ -7,17 +7,17 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
-	"github.com/rednafi/eon/internal/origin"
+	"github.com/rednafi/eon/cron"
 )
 
 type stubOrigin struct {
-	jobs    []origin.Job
+	jobs    []cron.Job
 	deleted []string
 }
 
 func (s *stubOrigin) Name() string { return "stub" }
-func (s *stubOrigin) List(_ context.Context) ([]origin.Job, error) {
-	return append([]origin.Job(nil), s.jobs...), nil
+func (s *stubOrigin) List(_ context.Context) ([]cron.Job, error) {
+	return append([]cron.Job(nil), s.jobs...), nil
 }
 func (s *stubOrigin) Delete(_ context.Context, id string) error {
 	for i, j := range s.jobs {
@@ -27,7 +27,7 @@ func (s *stubOrigin) Delete(_ context.Context, id string) error {
 			return nil
 		}
 	}
-	return origin.ErrNotFound
+	return cron.ErrNotFound
 }
 
 // keyPress builds a v2 KeyPressMsg from a string spelling. We use the
@@ -49,16 +49,16 @@ func keyPress(s string) tea.KeyPressMsg {
 	}
 }
 
-func newTestModel(jobs ...origin.Job) (Model, *stubOrigin) {
+func newTestModel(jobs ...cron.Job) (Model, *stubOrigin) {
 	s := &stubOrigin{jobs: jobs}
-	mgr := origin.NewManager(s)
+	mgr := cron.NewManager(s)
 	m := New(mgr)
 	mm, _ := m.Update(tea.WindowSizeMsg{Width: 120, Height: 30})
 	return mm.(Model), s
 }
 
 func TestModelInitialViewShowsLoading(t *testing.T) {
-	mgr := origin.NewManager(&stubOrigin{})
+	mgr := cron.NewManager(&stubOrigin{})
 	m := New(mgr)
 	if got := m.render(); got != "loading…" {
 		t.Errorf("want loading…, got %q", got)
@@ -67,8 +67,8 @@ func TestModelInitialViewShowsLoading(t *testing.T) {
 
 func TestModelRendersJobsAfterLoad(t *testing.T) {
 	m, _ := newTestModel(
-		origin.Job{ID: "stub:a", Kind: origin.KindCrontab, Name: "alpha", Schedule: "@daily", Status: "scheduled"},
-		origin.Job{ID: "stub:b", Kind: origin.KindLaunchd, Name: "beta", Schedule: "every 5m", Status: "loaded"},
+		cron.Job{ID: "stub:a", Kind: cron.KindCrontab, Name: "alpha", Schedule: "@daily", Status: "scheduled"},
+		cron.Job{ID: "stub:b", Kind: cron.KindLaunchd, Name: "beta", Schedule: "every 5m", Status: "loaded"},
 	)
 	mm, _ := m.Update(jobsLoadedMsg{jobs: m.mgr.Origins()[0].(*stubOrigin).jobs})
 	v := mm.(Model).render()
@@ -81,8 +81,8 @@ func TestModelRendersJobsAfterLoad(t *testing.T) {
 
 func TestModelDownArrowMovesCursor(t *testing.T) {
 	m, _ := newTestModel(
-		origin.Job{ID: "stub:a", Name: "alpha"},
-		origin.Job{ID: "stub:b", Name: "beta"},
+		cron.Job{ID: "stub:a", Name: "alpha"},
+		cron.Job{ID: "stub:b", Name: "beta"},
 	)
 	mm, _ := m.Update(jobsLoadedMsg{jobs: m.mgr.Origins()[0].(*stubOrigin).jobs})
 	mm, _ = mm.Update(keyPress("down"))
@@ -93,9 +93,9 @@ func TestModelDownArrowMovesCursor(t *testing.T) {
 
 func TestModelFilterNarrowsList(t *testing.T) {
 	m, _ := newTestModel(
-		origin.Job{ID: "stub:alpha", Name: "alpha"},
-		origin.Job{ID: "stub:beta", Name: "beta"},
-		origin.Job{ID: "stub:gamma", Name: "gamma"},
+		cron.Job{ID: "stub:alpha", Name: "alpha"},
+		cron.Job{ID: "stub:beta", Name: "beta"},
+		cron.Job{ID: "stub:gamma", Name: "gamma"},
 	)
 	mm, _ := m.Update(jobsLoadedMsg{jobs: m.mgr.Origins()[0].(*stubOrigin).jobs})
 	mm, _ = mm.Update(keyPress("/"))
@@ -114,7 +114,7 @@ func TestModelFilterNarrowsList(t *testing.T) {
 
 func TestModelEnterDrillsIntoDetail(t *testing.T) {
 	m, _ := newTestModel(
-		origin.Job{ID: "stub:a", Name: "alpha", Schedule: "@daily", Command: "/bin/echo hi"},
+		cron.Job{ID: "stub:a", Name: "alpha", Schedule: "@daily", Command: "/bin/echo hi"},
 	)
 	mm, _ := m.Update(jobsLoadedMsg{jobs: m.mgr.Origins()[0].(*stubOrigin).jobs})
 	mm, _ = mm.Update(keyPress("enter"))
@@ -127,7 +127,7 @@ func TestModelEnterDrillsIntoDetail(t *testing.T) {
 }
 
 func TestModelDeleteFlow(t *testing.T) {
-	m, stub := newTestModel(origin.Job{ID: "stub:goner", Name: "goner"})
+	m, stub := newTestModel(cron.Job{ID: "stub:goner", Name: "goner"})
 	mm, _ := m.Update(jobsLoadedMsg{jobs: stub.jobs})
 	mm, _ = mm.Update(keyPress("d"))
 	if mm.(Model).view != viewConfirmDelete {
@@ -162,7 +162,7 @@ func TestTruncateMiddleKeepsBothEnds(t *testing.T) {
 }
 
 func TestModelTogglesSystemVisibility(t *testing.T) {
-	jobs := []origin.Job{
+	jobs := []cron.Job{
 		{ID: "stub:user1", Name: "user1"},
 		{ID: "stub:sys1", Name: "sys1", System: true},
 		{ID: "stub:sys2", Name: "sys2", System: true},
@@ -187,9 +187,9 @@ func TestModelTogglesSystemVisibility(t *testing.T) {
 }
 
 func TestModelHundredJobsScrolls(t *testing.T) {
-	jobs := make([]origin.Job, 100)
+	jobs := make([]cron.Job, 100)
 	for i := range jobs {
-		jobs[i] = origin.Job{ID: "stub:" + string(rune('a'+i%26)), Name: "j", Kind: origin.KindCrontab}
+		jobs[i] = cron.Job{ID: "stub:" + string(rune('a'+i%26)), Name: "j", Kind: cron.KindCrontab}
 	}
 	m, _ := newTestModel(jobs...)
 	mm, _ := m.Update(jobsLoadedMsg{jobs: jobs})

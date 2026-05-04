@@ -18,12 +18,12 @@ import (
 	"strings"
 	"time"
 
-	"github.com/rednafi/eon/internal/origin"
+	"github.com/rednafi/eon/cron"
 )
 
 // Run dispatches a subcommand. argv must NOT include the program name.
 // stdin/stdout/stderr are explicit so tests can capture them.
-func Run(ctx context.Context, mgr *origin.Manager, argv []string, stdin io.Reader, stdout, stderr io.Writer) int {
+func Run(ctx context.Context, mgr *cron.Manager, argv []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	if len(argv) == 0 {
 		return runList(ctx, mgr, nil, stdout, stderr)
 	}
@@ -102,7 +102,7 @@ IDs:
   case-insensitive substring of the ID, name, or command (e.g. "stremio").
 `
 
-func runList(ctx context.Context, mgr *origin.Manager, argv []string, stdout, stderr io.Writer) int {
+func runList(ctx context.Context, mgr *cron.Manager, argv []string, stdout, stderr io.Writer) int {
 	fs := flag.NewFlagSet("list", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	asJSON := fs.Bool("json", false, "emit JSON instead of a table")
@@ -126,8 +126,8 @@ func runList(ctx context.Context, mgr *origin.Manager, argv []string, stdout, st
 
 // filterUser drops Job.System=true entries, leaving only the read-write
 // user-scope jobs.
-func filterUser(jobs []origin.Job) []origin.Job {
-	out := make([]origin.Job, 0, len(jobs))
+func filterUser(jobs []cron.Job) []cron.Job {
+	out := make([]cron.Job, 0, len(jobs))
 	for _, j := range jobs {
 		if !j.System {
 			out = append(out, j)
@@ -136,7 +136,7 @@ func filterUser(jobs []origin.Job) []origin.Job {
 	return out
 }
 
-func runShow(ctx context.Context, mgr *origin.Manager, argv []string, stdout, stderr io.Writer) int {
+func runShow(ctx context.Context, mgr *cron.Manager, argv []string, stdout, stderr io.Writer) int {
 	fs := flag.NewFlagSet("show", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	asJSON := fs.Bool("json", false, "emit JSON instead of formatted text")
@@ -159,7 +159,7 @@ func runShow(ctx context.Context, mgr *origin.Manager, argv []string, stdout, st
 	return 0
 }
 
-func runLogs(ctx context.Context, mgr *origin.Manager, argv []string, stdout, stderr io.Writer) int {
+func runLogs(ctx context.Context, mgr *cron.Manager, argv []string, stdout, stderr io.Writer) int {
 	fs := flag.NewFlagSet("logs", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	n := fs.Int("n", 100, "max lines per stream")
@@ -195,7 +195,7 @@ func runLogs(ctx context.Context, mgr *origin.Manager, argv []string, stdout, st
 	return 0
 }
 
-func runDelete(ctx context.Context, mgr *origin.Manager, argv []string, stdin io.Reader, stdout, stderr io.Writer) int {
+func runDelete(ctx context.Context, mgr *cron.Manager, argv []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	fs := flag.NewFlagSet("delete", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	yes := fs.Bool("yes", false, "skip the confirmation prompt")
@@ -244,7 +244,7 @@ func confirm(r io.Reader) bool {
 // We deliberately avoid pulling in a tablewriter dependency — the column
 // layout is fixed (5 columns, predictable widths) so a hand-rolled writer is
 // trivial and keeps eon's binary small.
-func renderTable(w io.Writer, jobs []origin.Job) {
+func renderTable(w io.Writer, jobs []cron.Job) {
 	if len(jobs) == 0 {
 		fmt.Fprintln(w, "(no scheduled jobs)")
 		return
@@ -288,7 +288,7 @@ func renderTable(w io.Writer, jobs []origin.Job) {
 	}
 }
 
-func renderJobDetail(w io.Writer, j origin.Job) {
+func renderJobDetail(w io.Writer, j cron.Job) {
 	fmt.Fprintf(w, "ID:        %s\n", j.ID)
 	fmt.Fprintf(w, "Kind:      %s\n", j.Kind)
 	fmt.Fprintf(w, "Name:      %s\n", j.Name)
@@ -368,15 +368,15 @@ func tail(w io.Writer, path string, n int) error {
 }
 
 // SortedJobs is a small helper used by tests to assert deterministic order.
-func SortedJobs(jobs []origin.Job) []origin.Job {
-	cp := append([]origin.Job(nil), jobs...)
+func SortedJobs(jobs []cron.Job) []cron.Job {
+	cp := append([]cron.Job(nil), jobs...)
 	sort.Slice(cp, func(i, j int) bool { return cp[i].ID < cp[j].ID })
 	return cp
 }
 
 // LogPathsFor returns a human-friendly hint for "logs" output when no log
 // paths are configured. Exposed for the TUI to share the same heuristic.
-func LogPathsFor(j origin.Job) []string {
+func LogPathsFor(j cron.Job) []string {
 	var paths []string
 	for _, p := range []string{j.StdoutPath, j.StderrPath} {
 		if p == "" {

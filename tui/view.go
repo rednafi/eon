@@ -12,7 +12,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 
-	"github.com/rednafi/eon/internal/origin"
+	"github.com/rednafi/eon/cron"
 )
 
 const (
@@ -297,7 +297,7 @@ func (m *Model) refreshDetailContent() {
 	m.logsVP.SetContent(renderLogs(j, width))
 }
 
-func renderLogs(j origin.Job, width int) string {
+func renderLogs(j cron.Job, width int) string {
 	var out strings.Builder
 	for _, p := range []struct{ label, path string }{
 		{"stdout", j.StdoutPath},
@@ -377,7 +377,7 @@ func renderRow(cells []string, widths []int, base *lipgloss.Style, overrides []*
 // computeColumnWidths sizes each column to its widest cell, then squeezes
 // ID → NAME → KIND if the row exceeds the available width. SCHEDULE/STATUS
 // stay at their natural width since they're short and most informative.
-func computeColumnWidths(headers []string, jobs []origin.Job, available int) []int {
+func computeColumnWidths(headers []string, jobs []cron.Job, available int) []int {
 	widths := make([]int, len(headers))
 	for i, h := range headers {
 		widths[i] = len(h)

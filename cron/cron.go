@@ -4,7 +4,7 @@
 // a systemd timer, or anything else an Origin plugin understands. Each origin
 // returns Jobs with a stable ID that downstream code (CLI, TUI) can use to
 // show details, tail logs, or delete.
-package origin
+package cron
 
 import (
 	"context"

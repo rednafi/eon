@@ -13,16 +13,16 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
-	"github.com/rednafi/eon/internal/cli"
-	"github.com/rednafi/eon/internal/origin"
-	"github.com/rednafi/eon/internal/tui"
+	"github.com/rednafi/eon/cli"
+	"github.com/rednafi/eon/cron"
+	"github.com/rednafi/eon/tui"
 )
 
 func main() {
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer cancel()
 
-	mgr, errs := origin.DefaultManager()
+	mgr, errs := cron.DefaultManager()
 	for _, e := range errs {
 		fmt.Fprintf(os.Stderr, "warning: %v\n", e)
 	}
@@ -36,7 +36,7 @@ func main() {
 	os.Exit(cli.Run(ctx, mgr, os.Args[1:], os.Stdin, os.Stdout, os.Stderr))
 }
 
-func runTUI(mgr *origin.Manager) {
+func runTUI(mgr *cron.Manager) {
 	p := tea.NewProgram(tui.New(mgr))
 	if _, err := p.Run(); err != nil {
 		fmt.Fprintln(os.Stderr, "tui:", err)

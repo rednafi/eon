@@ -9,7 +9,7 @@ import (
 	"charm.land/bubbles/v2/viewport"
 	tea "charm.land/bubbletea/v2"
 
-	"github.com/rednafi/eon/internal/origin"
+	"github.com/rednafi/eon/cron"
 )
 
 type view int
@@ -42,13 +42,13 @@ func (t detailTab) String() string {
 }
 
 type Model struct {
-	mgr   *origin.Manager
+	mgr   *cron.Manager
 	keys  keyMap
 	theme theme
 
 	view          view
 	width, height int
-	jobs          []origin.Job
+	jobs          []cron.Job
 	loadErr       string
 
 	cursor   int
@@ -72,12 +72,12 @@ type Model struct {
 	// rebuilding when nothing changed (e.g. on resize while sitting on list).
 	lastDetailID string
 
-	pendingDelete origin.Job
+	pendingDelete cron.Job
 	flash         string
 	flashUntil    time.Time
 }
 
-func New(mgr *origin.Manager) Model {
+func New(mgr *cron.Manager) Model {
 	ti := textinput.New()
 	ti.Placeholder = "filter"
 	ti.Prompt = "/ "
@@ -94,7 +94,7 @@ func New(mgr *origin.Manager) Model {
 func (m Model) Init() tea.Cmd { return reload(m.mgr) }
 
 type jobsLoadedMsg struct {
-	jobs []origin.Job
+	jobs []cron.Job
 	err  string
 }
 
@@ -102,7 +102,7 @@ type flashMsg struct{ text string }
 
 // reload fetches the current snapshot. Bounded by 5s so a stuck launchctl/
 // systemctl can't freeze the UI.
-func reload(mgr *origin.Manager) tea.Cmd {
+func reload(mgr *cron.Manager) tea.Cmd {
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
@@ -119,7 +119,7 @@ func reload(mgr *origin.Manager) tea.Cmd {
 	}
 }
 
-func deleteCmd(mgr *origin.Manager, id string) tea.Cmd {
+func deleteCmd(mgr *cron.Manager, id string) tea.Cmd {
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()

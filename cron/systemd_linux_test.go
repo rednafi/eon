@@ -1,6 +1,6 @@
 //go:build linux
 
-package origin
+package cron
 
 import (
 	"context"

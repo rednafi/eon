@@ -6,10 +6,10 @@ GO        ?= go
 PKG       := ./...
 BIN_DIR   := bin
 BIN       := $(BIN_DIR)/eon
-LDFLAGS   := -s -w -X github.com/rednafi/eon/internal/cli.Version=$(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
+LDFLAGS   := -s -w -X github.com/rednafi/eon/cli.Version=$(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 
 build: $(BIN_DIR) ## build the eon binary
-	$(GO) build -trimpath -ldflags '$(LDFLAGS)' -o $(BIN) ./cmd/eon
+	$(GO) build -trimpath -ldflags '$(LDFLAGS)' -o $(BIN) .
 
 test: ## run the test suite with race detector
 	$(GO) test -race -count=1 $(PKG)

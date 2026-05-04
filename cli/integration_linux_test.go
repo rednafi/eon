@@ -10,7 +10,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/rednafi/eon/internal/origin"
+	"github.com/rednafi/eon/cron"
 )
 
 // TestCLIEndToEndCrontab exercises `eon list`, `eon show`, and
@@ -32,7 +32,7 @@ func TestCLIEndToEndCrontab(t *testing.T) {
 		t.Fatalf("install: %v", err)
 	}
 
-	mgr := origin.NewManager(origin.NewCrontab())
+	mgr := cron.NewManager(cron.NewCrontab())
 	ctx := context.Background()
 
 	var out bytes.Buffer

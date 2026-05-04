@@ -1,6 +1,6 @@
 //go:build darwin
 
-package origin
+package cron
 
 // systemLaunchdDirs lists the read-only locations macOS installs background
 // jobs into. Order matters only for tag stability — IDs are

@@ -9,20 +9,20 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/rednafi/eon/internal/origin"
+	"github.com/rednafi/eon/cron"
 )
 
 // fakeOrigin is a minimal Origin used to assemble a Manager without touching
 // real cron files. The CLI doesn't care which backend a job came from, so a
 // single fake covers list/show/delete behavior.
 type fakeOrigin struct {
-	jobs    []origin.Job
+	jobs    []cron.Job
 	deleted []string
 }
 
 func (f *fakeOrigin) Name() string { return "fake" }
-func (f *fakeOrigin) List(_ context.Context) ([]origin.Job, error) {
-	return append([]origin.Job(nil), f.jobs...), nil
+func (f *fakeOrigin) List(_ context.Context) ([]cron.Job, error) {
+	return append([]cron.Job(nil), f.jobs...), nil
 }
 func (f *fakeOrigin) Delete(_ context.Context, id string) error {
 	for i, j := range f.jobs {
@@ -32,12 +32,12 @@ func (f *fakeOrigin) Delete(_ context.Context, id string) error {
 			return nil
 		}
 	}
-	return origin.ErrNotFound
+	return cron.ErrNotFound
 }
 
-func newFakeManager(jobs ...origin.Job) (*origin.Manager, *fakeOrigin) {
+func newFakeManager(jobs ...cron.Job) (*cron.Manager, *fakeOrigin) {
 	f := &fakeOrigin{jobs: jobs}
-	return origin.NewManager(f), f
+	return cron.NewManager(f), f
 }
 
 func TestRunListEmpty(t *testing.T) {
@@ -53,8 +53,8 @@ func TestRunListEmpty(t *testing.T) {
 
 func TestRunListHidesSystemByDefault(t *testing.T) {
 	mgr, _ := newFakeManager(
-		origin.Job{ID: "fake:user", Kind: "fake", Name: "user-job", Schedule: "@daily"},
-		origin.Job{ID: "fake:sys", Kind: "fake", Name: "sys-job", Schedule: "@daily", System: true},
+		cron.Job{ID: "fake:user", Kind: "fake", Name: "user-job", Schedule: "@daily"},
+		cron.Job{ID: "fake:sys", Kind: "fake", Name: "sys-job", Schedule: "@daily", System: true},
 	)
 	var out bytes.Buffer
 	if code := Run(context.Background(), mgr, []string{"list"}, nil, &out, &out); code != 0 {
@@ -70,8 +70,8 @@ func TestRunListHidesSystemByDefault(t *testing.T) {
 
 func TestRunListAllShowsSystem(t *testing.T) {
 	mgr, _ := newFakeManager(
-		origin.Job{ID: "fake:user", Kind: "fake", Name: "user-job"},
-		origin.Job{ID: "fake:sys", Kind: "fake", Name: "sys-job", System: true},
+		cron.Job{ID: "fake:user", Kind: "fake", Name: "user-job"},
+		cron.Job{ID: "fake:sys", Kind: "fake", Name: "sys-job", System: true},
 	)
 	var out bytes.Buffer
 	if code := Run(context.Background(), mgr, []string{"list", "--all"}, nil, &out, &out); code != 0 {
@@ -83,12 +83,12 @@ func TestRunListAllShowsSystem(t *testing.T) {
 }
 
 func TestRunListJSON(t *testing.T) {
-	mgr, _ := newFakeManager(origin.Job{ID: "fake:1", Kind: "fake", Name: "first", Schedule: "@daily"})
+	mgr, _ := newFakeManager(cron.Job{ID: "fake:1", Kind: "fake", Name: "first", Schedule: "@daily"})
 	var out bytes.Buffer
 	if code := Run(context.Background(), mgr, []string{"list", "--json"}, nil, &out, &out); code != 0 {
 		t.Fatalf("exit %d: %s", code, out.String())
 	}
-	var got []origin.Job
+	var got []cron.Job
 	if err := json.Unmarshal(out.Bytes(), &got); err != nil {
 		t.Fatalf("not JSON: %v\n%s", err, out.String())
 	}
@@ -99,8 +99,8 @@ func TestRunListJSON(t *testing.T) {
 
 func TestRunShowResolvesByPrefix(t *testing.T) {
 	mgr, _ := newFakeManager(
-		origin.Job{ID: "fake:com.example.alpha", Name: "alpha"},
-		origin.Job{ID: "fake:com.example.beta", Name: "beta"},
+		cron.Job{ID: "fake:com.example.alpha", Name: "alpha"},
+		cron.Job{ID: "fake:com.example.beta", Name: "beta"},
 	)
 	var out bytes.Buffer
 	if code := Run(context.Background(), mgr, []string{"show", "alpha"}, nil, &out, &out); code != 0 {
@@ -112,7 +112,7 @@ func TestRunShowResolvesByPrefix(t *testing.T) {
 }
 
 func TestRunDeleteWithYesFlag(t *testing.T) {
-	mgr, fake := newFakeManager(origin.Job{ID: "fake:to-go", Name: "to-go"})
+	mgr, fake := newFakeManager(cron.Job{ID: "fake:to-go", Name: "to-go"})
 	var out bytes.Buffer
 	code := Run(context.Background(), mgr, []string{"delete", "to-go", "--yes"}, nil, &out, &out)
 	if code != 0 {
@@ -124,7 +124,7 @@ func TestRunDeleteWithYesFlag(t *testing.T) {
 }
 
 func TestRunDeletePromptDeniedKeepsJob(t *testing.T) {
-	mgr, fake := newFakeManager(origin.Job{ID: "fake:keep", Name: "keep"})
+	mgr, fake := newFakeManager(cron.Job{ID: "fake:keep", Name: "keep"})
 	var out bytes.Buffer
 	stdin := strings.NewReader("n\n")
 	code := Run(context.Background(), mgr, []string{"delete", "keep"}, stdin, &out, &out)

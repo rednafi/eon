@@ -7,7 +7,7 @@ import (
 	"charm.land/bubbles/v2/viewport"
 	tea "charm.land/bubbletea/v2"
 
-	"github.com/rednafi/eon/internal/origin"
+	"github.com/rednafi/eon/cron"
 )
 
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -179,9 +179,9 @@ func (m *Model) activeVP() *viewport.Model {
 	}
 }
 
-func (m Model) currentJob() (origin.Job, bool) {
+func (m Model) currentJob() (cron.Job, bool) {
 	if len(m.visibleIdx) == 0 || m.cursor >= len(m.visibleIdx) {
-		return origin.Job{}, false
+		return cron.Job{}, false
 	}
 	return m.jobs[m.visibleIdx[m.cursor]], true
 }
@@ -204,7 +204,7 @@ func (m *Model) recomputeFilter() {
 	}
 }
 
-func jobMatches(j *origin.Job, lowerQuery string) bool {
+func jobMatches(j *cron.Job, lowerQuery string) bool {
 	return strings.Contains(strings.ToLower(j.ID), lowerQuery) ||
 		strings.Contains(strings.ToLower(j.Name), lowerQuery) ||
 		strings.Contains(strings.ToLower(j.Command), lowerQuery) ||

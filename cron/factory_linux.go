@@ -1,6 +1,6 @@
 //go:build linux
 
-package origin
+package cron
 
 // systemSystemdDirs lists the read-only locations where system-scope timer
 // units live. /etc takes precedence over /usr/lib in real systemd's resolution
