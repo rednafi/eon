@@ -3,7 +3,6 @@
 package systemd
 
 import (
-	"context"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -51,7 +50,7 @@ func TestSystemdListFromTempDir(t *testing.T) {
 	writePair(t, dir, "eon-test-2")
 
 	src := &Systemd{Dir: dir, Tag: "test"}
-	jobs, err := src.List(context.Background())
+	jobs, err := src.List(t.Context())
 	if err != nil {
 		t.Fatalf("list: %v", err)
 	}
@@ -71,7 +70,7 @@ func TestSystemdDeleteRemovesUnits(t *testing.T) {
 	writePair(t, dir, "eon-target")
 
 	src := &Systemd{Dir: dir, Tag: "test"}
-	if err := src.Delete(context.Background(), "systemd-test:eon-target"); err != nil {
+	if err := src.Delete(t.Context(), "systemd-test:eon-target"); err != nil {
 		t.Fatalf("delete: %v", err)
 	}
 	for _, ext := range []string{".timer", ".service"} {
@@ -79,7 +78,7 @@ func TestSystemdDeleteRemovesUnits(t *testing.T) {
 			t.Errorf("%s still exists: %v", ext, err)
 		}
 	}
-	if err := src.Delete(context.Background(), "systemd-test:eon-target"); err != cron.ErrNotFound {
+	if err := src.Delete(t.Context(), "systemd-test:eon-target"); err != cron.ErrNotFound {
 		t.Errorf("second delete should return cron.ErrNotFound, got %v", err)
 	}
 }
@@ -90,7 +89,7 @@ func TestSystemdHundredTimers(t *testing.T) {
 		writePair(t, dir, fmt.Sprintf("eon-bulk-%03d", i))
 	}
 	src := &Systemd{Dir: dir, Tag: "test"}
-	jobs, err := src.List(context.Background())
+	jobs, err := src.List(t.Context())
 	if err != nil {
 		t.Fatalf("list: %v", err)
 	}
@@ -106,7 +105,7 @@ func TestSystemdHundredTimers(t *testing.T) {
 
 func TestSystemdDeleteUnknownReturnsNotFound(t *testing.T) {
 	src := &Systemd{Dir: t.TempDir(), Tag: "test"}
-	if err := src.Delete(context.Background(), "systemd-test:nope"); err != cron.ErrNotFound {
+	if err := src.Delete(t.Context(), "systemd-test:nope"); err != cron.ErrNotFound {
 		t.Errorf("want cron.ErrNotFound, got %v", err)
 	}
 }
@@ -115,7 +114,7 @@ func TestSystemdReadOnlyMarksAndRefuses(t *testing.T) {
 	dir := t.TempDir()
 	writePair(t, dir, "system-job")
 	src := &Systemd{Dir: dir, Tag: "etc", ReadOnly: true}
-	jobs, err := src.List(context.Background())
+	jobs, err := src.List(t.Context())
 	if err != nil {
 		t.Fatalf("list: %v", err)
 	}
@@ -125,7 +124,7 @@ func TestSystemdReadOnlyMarksAndRefuses(t *testing.T) {
 	if got := src.Scope(); got != cron.ScopeSystem {
 		t.Errorf("read-only source scope = %v, want %v", got, cron.ScopeSystem)
 	}
-	err = src.Delete(context.Background(), jobs[0].ID)
+	err = src.Delete(t.Context(), jobs[0].ID)
 	if err == nil || !strings.Contains(err.Error(), "read-only") {
 		t.Errorf("read-only delete should fail with read-only error, got %v", err)
 	}

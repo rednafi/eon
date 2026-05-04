@@ -7,7 +7,6 @@ package tests
 
 import (
 	"bytes"
-	"context"
 	"io"
 	"testing"
 
@@ -27,7 +26,7 @@ func runCLI(t *testing.T, mgr *cron.Manager, argv []string, stdin io.Reader, std
 	}
 	root.SetOut(stdout)
 	root.SetErr(stderr)
-	return root.ExecuteContext(context.Background())
+	return root.ExecuteContext(t.Context())
 }
 
 func mustOK(t *testing.T, err error) {

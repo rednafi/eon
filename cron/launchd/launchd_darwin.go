@@ -141,17 +141,8 @@ func (l *Launchd) readPlist(path string) (cron.Job, error) {
 	if err := dec.Decode(&doc); err != nil {
 		return cron.Job{}, err
 	}
-	label := doc.Label
-	if label == "" {
-		label = strings.TrimSuffix(filepath.Base(path), ".plist")
-	}
-	cmd := strings.Join(doc.ProgramArguments, " ")
-	if cmd == "" {
-		cmd = doc.Program
-	}
-	if cmd == "" {
-		cmd = "(no command)"
-	}
+	label := cmp.Or(doc.Label, strings.TrimSuffix(filepath.Base(path), ".plist"))
+	cmd := cmp.Or(strings.Join(doc.ProgramArguments, " "), doc.Program, "(no command)")
 	j := cron.Job{
 		ID:         "launchd-" + l.Tag + ":" + label,
 		Kind:       cron.KindLaunchd,
@@ -297,14 +288,13 @@ func (l *Launchd) enrich(ctx context.Context, jobs []cron.Job) {
 
 // Delete implements cron.Source. ReadOnly sources reject the call.
 func (l *Launchd) Delete(ctx context.Context, id string) error {
-	prefix := "launchd-" + l.Tag + ":"
-	if !strings.HasPrefix(id, prefix) {
+	label, ok := strings.CutPrefix(id, "launchd-"+l.Tag+":")
+	if !ok {
 		return cron.ErrNotFound
 	}
 	if l.ReadOnly {
 		return fmt.Errorf("%s is read-only", l.Name())
 	}
-	label := strings.TrimPrefix(id, prefix)
 	path := filepath.Join(l.Dir, label+".plist")
 	if _, err := os.Stat(path); os.IsNotExist(err) {
 		return cron.ErrNotFound

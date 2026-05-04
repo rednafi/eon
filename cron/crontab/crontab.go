@@ -110,10 +110,10 @@ func (c *Crontab) parse(content string) []cron.Job {
 // Delete implements cron.Source. The line is identified by its ID hash so we don't
 // rely on positional indices that change as users edit the crontab manually.
 func (c *Crontab) Delete(ctx context.Context, id string) error {
-	if !strings.HasPrefix(id, "crontab:") {
+	target, ok := strings.CutPrefix(id, "crontab:")
+	if !ok {
 		return cron.ErrNotFound
 	}
-	target := strings.TrimPrefix(id, "crontab:")
 	out, err := c.Runner(ctx, []string{"-l"}, "")
 	if err != nil {
 		return err
@@ -155,12 +155,12 @@ func (c *Crontab) Delete(ctx context.Context, id string) error {
 func splitCrontabLine(line string) (schedule, command string, ok bool) {
 	line = strings.TrimSpace(line)
 	if strings.HasPrefix(line, "@") {
-		// "@daily cmd" — schedule is the first token.
-		parts := strings.SplitN(line, " ", 2)
-		if len(parts) != 2 {
+		// "@daily cmd" — schedule is the first token, command is the rest.
+		schedule, command, ok := strings.Cut(line, " ")
+		if !ok {
 			return "", "", false
 		}
-		return parts[0], strings.TrimSpace(parts[1]), true
+		return schedule, strings.TrimSpace(command), true
 	}
 	// 5 fields then command. Fields can contain commas/dashes/slashes but not
 	// spaces, so a simple field-walk is sufficient. We must use a C-style

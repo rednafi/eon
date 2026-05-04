@@ -3,7 +3,6 @@
 package tests
 
 import (
-	"context"
 	"strings"
 	"testing"
 
@@ -19,7 +18,7 @@ func TestCrontabRealRoundTrip(t *testing.T) {
 	withCrontab(t, "*/5 * * * * /bin/echo eon-real-test\n@daily /bin/true\n")
 
 	src := crontab.New()
-	jobs, err := src.List(context.Background())
+	jobs, err := src.List(t.Context())
 	if err != nil {
 		t.Fatalf("list: %v", err)
 	}
@@ -33,10 +32,10 @@ func TestCrontabRealRoundTrip(t *testing.T) {
 	}
 
 	target := jobs[0]
-	if err := src.Delete(context.Background(), target.ID); err != nil {
+	if err := src.Delete(t.Context(), target.ID); err != nil {
 		t.Fatalf("delete: %v", err)
 	}
-	jobs, err = src.List(context.Background())
+	jobs, err = src.List(t.Context())
 	if err != nil {
 		t.Fatalf("re-list: %v", err)
 	}
@@ -47,10 +46,10 @@ func TestCrontabRealRoundTrip(t *testing.T) {
 		t.Errorf("deleted job %q still present", target.ID)
 	}
 
-	if err := src.Delete(context.Background(), jobs[0].ID); err != nil {
+	if err := src.Delete(t.Context(), jobs[0].ID); err != nil {
 		t.Fatalf("delete last: %v", err)
 	}
-	jobs, _ = src.List(context.Background())
+	jobs, _ = src.List(t.Context())
 	if len(jobs) != 0 {
 		t.Errorf("want 0 jobs after final delete, got %d", len(jobs))
 	}

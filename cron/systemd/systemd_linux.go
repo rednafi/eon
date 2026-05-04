@@ -35,6 +35,15 @@ func DefaultSystemctlRunner(ctx context.Context, args []string) ([]byte, error) 
 // Compile-time guard: Systemd satisfies cron.Source.
 var _ cron.Source = (*Systemd)(nil)
 
+// prefixed returns p+s when s is non-empty, "" otherwise. Lets cmp.Or
+// chains express conditional fallbacks ("every <v>" only if v is set).
+func prefixed(p, s string) string {
+	if s == "" {
+		return ""
+	}
+	return p + s
+}
+
 // Systemd is a cron.Source backed by systemd timer units in a directory. User
 // scope reads ~/.config/systemd/user with delete enabled; system scope reads
 // /etc/systemd/system or /usr/lib/systemd/system with ReadOnly=true.
@@ -47,12 +56,8 @@ type Systemd struct {
 
 // NewUser returns the standard user-scope timer source.
 func NewUser() *Systemd {
-	dir := os.Getenv("XDG_CONFIG_HOME")
-	if dir == "" {
-		if home, err := os.UserHomeDir(); err == nil {
-			dir = filepath.Join(home, ".config")
-		}
-	}
+	home, _ := os.UserHomeDir()
+	dir := cmp.Or(os.Getenv("XDG_CONFIG_HOME"), filepath.Join(home, ".config"))
 	return &Systemd{
 		Dir:       filepath.Join(dir, "systemd", "user"),
 		Tag:       "user",
@@ -113,19 +118,13 @@ func (s *Systemd) readTimer(path string) (cron.Job, error) {
 		svc := parseUnit(string(svcRaw))
 		command = svc["Service.ExecStart"]
 	}
-	if command == "" {
-		command = "(systemd unit: " + label + ")"
-	}
-	schedule := timer["Timer.OnCalendar"]
-	if schedule == "" {
-		if v := timer["Timer.OnUnitActiveSec"]; v != "" {
-			schedule = "every " + v
-		} else if v := timer["Timer.OnBootSec"]; v != "" {
-			schedule = "boot+" + v
-		} else {
-			schedule = "(no schedule)"
-		}
-	}
+	command = cmp.Or(command, "(systemd unit: "+label+")")
+	schedule := cmp.Or(
+		timer["Timer.OnCalendar"],
+		prefixed("every ", timer["Timer.OnUnitActiveSec"]),
+		prefixed("boot+", timer["Timer.OnBootSec"]),
+		"(no schedule)",
+	)
 	return cron.Job{
 		ID:       "systemd-" + s.Tag + ":" + label,
 		Kind:     cron.KindSystemd,
@@ -164,19 +163,18 @@ func parseUnit(content string) map[string]string {
 	return out
 }
 
-// Delete implementsSource. We stop+disable the timer (best-effort), then
-// remove the .timer and matching .service file from disk. The unit is no
-// longer scheduled after this even if `daemon-reload` hasn't run, because
-// the file backing it is gone.
+// Delete implements cron.Source. We stop+disable the timer (best-effort),
+// then remove the .timer and its sibling .service from disk. The unit is no
+// longer scheduled after this even if daemon-reload hasn't run, because the
+// file backing it is gone.
 func (s *Systemd) Delete(ctx context.Context, id string) error {
-	prefix := "systemd-" + s.Tag + ":"
-	if !strings.HasPrefix(id, prefix) {
+	label, ok := strings.CutPrefix(id, "systemd-"+s.Tag+":")
+	if !ok {
 		return cron.ErrNotFound
 	}
 	if s.ReadOnly {
 		return fmt.Errorf("%s is read-only", s.Name())
 	}
-	label := strings.TrimPrefix(id, prefix)
 	timerPath := filepath.Join(s.Dir, label+".timer")
 	if _, err := os.Stat(timerPath); os.IsNotExist(err) {
 		return cron.ErrNotFound

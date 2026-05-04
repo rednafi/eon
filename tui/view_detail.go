@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -146,7 +147,7 @@ func readTail(path string, maxBytes int) (string, error) {
 		off = size - int64(maxBytes)
 	}
 	buf := make([]byte, size-off)
-	if _, err := f.ReadAt(buf, off); err != nil && err != io.EOF {
+	if _, err := f.ReadAt(buf, off); err != nil && !errors.Is(err, io.EOF) {
 		return "", err
 	}
 	return string(buf), nil

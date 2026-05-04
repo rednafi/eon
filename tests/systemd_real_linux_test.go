@@ -3,7 +3,6 @@
 package tests
 
 import (
-	"context"
 	"os"
 	"path/filepath"
 	"strings"
@@ -55,7 +54,7 @@ ExecStart=/bin/echo eon-real-test
 		t.Fatalf("write service: %v", err)
 	}
 
-	jobs, err := src.List(context.Background())
+	jobs, err := src.List(t.Context())
 	if err != nil {
 		t.Fatalf("list: %v", err)
 	}
@@ -72,7 +71,7 @@ ExecStart=/bin/echo eon-real-test
 	if found.Command != "/bin/echo eon-real-test" {
 		t.Errorf("command mismatch: %q", found.Command)
 	}
-	if err := src.Delete(context.Background(), found.ID); err != nil {
+	if err := src.Delete(t.Context(), found.ID); err != nil {
 		t.Fatalf("delete: %v", err)
 	}
 	if _, err := os.Stat(timerPath); !os.IsNotExist(err) {

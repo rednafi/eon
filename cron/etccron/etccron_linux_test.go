@@ -3,7 +3,6 @@
 package etccron
 
 import (
-	"context"
 	"os"
 	"path/filepath"
 	"strings"
@@ -36,7 +35,7 @@ PATH=/usr/bin:/bin
 	}
 
 	src := &EtcCron{MainPath: main, DropInDir: dropin, parser: New().parser}
-	jobs, err := src.List(context.Background())
+	jobs, err := src.List(t.Context())
 	if err != nil {
 		t.Fatalf("list: %v", err)
 	}
@@ -65,14 +64,14 @@ PATH=/usr/bin:/bin
 
 func TestEtcCronDeleteAlwaysReturnsNotFound(t *testing.T) {
 	src := New()
-	if err := src.Delete(context.Background(), "crontab-system:anything"); err != cron.ErrNotFound {
+	if err := src.Delete(t.Context(), "crontab-system:anything"); err != cron.ErrNotFound {
 		t.Errorf("system crontab must be read-only, got %v", err)
 	}
 }
 
 func TestEtcCronMissingPathsAreSilent(t *testing.T) {
 	src := &EtcCron{MainPath: "/no/such/file", DropInDir: "/no/such/dir", parser: New().parser}
-	jobs, err := src.List(context.Background())
+	jobs, err := src.List(t.Context())
 	if err != nil {
 		t.Errorf("missing paths should not error: %v", err)
 	}

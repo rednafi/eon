@@ -38,7 +38,7 @@ func TestManagerListAggregatesAndSorts(t *testing.T) {
 	b := &stubOrigin{name: "b", jobs: []Job{{ID: "y", Kind: KindCrontab, Name: "alpha"}}}
 	mgr := NewManager(a, b)
 
-	got, errs := mgr.List(context.Background())
+	got, errs := mgr.List(t.Context())
 	if len(errs) != 0 {
 		t.Fatalf("unexpected errs: %v", errs)
 	}
@@ -52,7 +52,7 @@ func TestManagerListPropagatesErrors(t *testing.T) {
 	bad := &errOrigin{name: "broken", err: errors.New("boom")}
 	mgr := NewManager(bad, good)
 
-	jobs, errs := mgr.List(context.Background())
+	jobs, errs := mgr.List(t.Context())
 	if len(jobs) != 1 || jobs[0].ID != "good:1" {
 		t.Errorf("good origin should still appear: %+v", jobs)
 	}
@@ -80,21 +80,21 @@ func TestManagerFindExactThenPrefix(t *testing.T) {
 		},
 	})
 	// Exact ID wins.
-	j, err := mgr.Find(context.Background(), "launchd:com.foo.alpha")
+	j, err := mgr.Find(t.Context(), "launchd:com.foo.alpha")
 	if err != nil || j.Name != "alpha" {
 		t.Errorf("exact match failed: %v %v", j, err)
 	}
 	// Substring match.
-	j, err = mgr.Find(context.Background(), "beta")
+	j, err = mgr.Find(t.Context(), "beta")
 	if err != nil || j.Name != "beta" {
 		t.Errorf("substring match failed: %v %v", j, err)
 	}
 	// Ambiguous → error.
-	if _, err := mgr.Find(context.Background(), "foo"); err == nil {
+	if _, err := mgr.Find(t.Context(), "foo"); err == nil {
 		t.Errorf("expected ambiguous error")
 	}
 	// Unknown → ErrNotFound.
-	if _, err := mgr.Find(context.Background(), "missing"); err != ErrNotFound {
+	if _, err := mgr.Find(t.Context(), "missing"); !errors.Is(err, ErrNotFound) {
 		t.Errorf("want ErrNotFound, got %v", err)
 	}
 }
@@ -103,7 +103,7 @@ func TestManagerDeleteRoutesToOwningOrigin(t *testing.T) {
 	a := &stubOrigin{name: "a", jobs: []Job{{ID: "owned:1"}}}
 	b := &stubOrigin{name: "b", jobs: []Job{{ID: "other:1"}}}
 	mgr := NewManager(a, b)
-	if err := mgr.Delete(context.Background(), "owned:1"); err != nil {
+	if err := mgr.Delete(t.Context(), "owned:1"); err != nil {
 		t.Fatalf("delete: %v", err)
 	}
 	if len(a.jobs) != 0 {
@@ -112,7 +112,7 @@ func TestManagerDeleteRoutesToOwningOrigin(t *testing.T) {
 	if len(b.jobs) != 1 {
 		t.Errorf("non-owning origin mutated: %v", b.jobs)
 	}
-	if err := mgr.Delete(context.Background(), "ghost"); err != ErrNotFound {
+	if err := mgr.Delete(t.Context(), "ghost"); !errors.Is(err, ErrNotFound) {
 		t.Errorf("want ErrNotFound, got %v", err)
 	}
 }

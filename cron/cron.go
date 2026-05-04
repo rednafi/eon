@@ -194,7 +194,7 @@ func ShortHash(s string) string {
 // basename of the first non-assignment token. Sources use it to populate
 // Job.Name when no native label exists (crontab lines, cron.d entries).
 func CommandShortName(cmd string) string {
-	for _, tok := range strings.Fields(cmd) {
+	for tok := range strings.FieldsSeq(cmd) {
 		if strings.Contains(tok, "=") {
 			continue
 		}

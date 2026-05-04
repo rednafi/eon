@@ -56,7 +56,7 @@ func TestLaunchdListFromTempDir(t *testing.T) {
 	}
 
 	src := &Launchd{Dir: dir, Tag: "test"}
-	jobs, err := src.List(context.Background())
+	jobs, err := src.List(t.Context())
 	if err != nil {
 		t.Fatalf("list: %v", err)
 	}
@@ -81,13 +81,13 @@ func TestLaunchdDeleteRemovesPlist(t *testing.T) {
 	}
 	src := &Launchd{Dir: dir, Tag: "test"}
 
-	if err := src.Delete(context.Background(), "launchd-test:com.example.target"); err != nil {
+	if err := src.Delete(t.Context(), "launchd-test:com.example.target"); err != nil {
 		t.Fatalf("delete: %v", err)
 	}
 	if _, err := os.Stat(path); !os.IsNotExist(err) {
 		t.Errorf("plist still exists: %v", err)
 	}
-	if err := src.Delete(context.Background(), "launchd-test:com.example.target"); err != cron.ErrNotFound {
+	if err := src.Delete(t.Context(), "launchd-test:com.example.target"); err != cron.ErrNotFound {
 		t.Errorf("second delete should return cron.ErrNotFound, got %v", err)
 	}
 }
@@ -98,7 +98,7 @@ func TestLaunchdReadOnlyRejectsDelete(t *testing.T) {
 		t.Fatalf("write: %v", err)
 	}
 	src := &Launchd{Dir: dir, Tag: "system", ReadOnly: true}
-	err := src.Delete(context.Background(), "launchd-system:com.example.lock")
+	err := src.Delete(t.Context(), "launchd-system:com.example.lock")
 	if err == nil || !strings.Contains(err.Error(), "read-only") {
 		t.Errorf("want read-only error, got %v", err)
 	}
@@ -117,7 +117,7 @@ func TestLaunchdHundredJobs(t *testing.T) {
 		}
 	}
 	src := &Launchd{Dir: dir, Tag: "test"}
-	jobs, err := src.List(context.Background())
+	jobs, err := src.List(t.Context())
 	if err != nil {
 		t.Fatalf("list: %v", err)
 	}
@@ -134,7 +134,7 @@ func TestLaunchdHundredJobs(t *testing.T) {
 		// Delete the even-suffixed jobs.
 		if strings.HasSuffix(j.Name, "0") || strings.HasSuffix(j.Name, "2") ||
 			strings.HasSuffix(j.Name, "4") || strings.HasSuffix(j.Name, "6") || strings.HasSuffix(j.Name, "8") {
-			if err := src.Delete(context.Background(), j.ID); err != nil {
+			if err := src.Delete(t.Context(), j.ID); err != nil {
 				t.Errorf("delete %s: %v", j.ID, err)
 			}
 			deleted++
@@ -143,7 +143,7 @@ func TestLaunchdHundredJobs(t *testing.T) {
 	if deleted != 50 {
 		t.Fatalf("expected to delete 50 jobs, deleted %d", deleted)
 	}
-	jobs, _ = src.List(context.Background())
+	jobs, _ = src.List(t.Context())
 	if len(jobs) != 50 {
 		t.Fatalf("want 50 jobs remaining, got %d", len(jobs))
 	}
@@ -151,7 +151,7 @@ func TestLaunchdHundredJobs(t *testing.T) {
 
 func TestLaunchdMissingDir(t *testing.T) {
 	src := &Launchd{Dir: "/no/such/path/in/this/test", Tag: "test"}
-	jobs, err := src.List(context.Background())
+	jobs, err := src.List(t.Context())
 	if err != nil {
 		t.Errorf("missing dir should not error: %v", err)
 	}
@@ -172,7 +172,7 @@ func TestLaunchdEnrichWithFakeRunner(t *testing.T) {
 			return []byte("PID\tStatus\tLabel\n1234\t0\tcom.example.enrich\n"), nil
 		},
 	}
-	jobs, err := src.List(context.Background())
+	jobs, err := src.List(t.Context())
 	if err != nil {
 		t.Fatalf("list: %v", err)
 	}

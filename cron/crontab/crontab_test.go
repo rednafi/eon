@@ -45,7 +45,7 @@ func TestCrontabListSkipsCommentsAndBlank(t *testing.T) {
 `}
 	c := New()
 	c.Runner = f.run
-	jobs, err := c.List(context.Background())
+	jobs, err := c.List(t.Context())
 	if err != nil {
 		t.Fatalf("list: %v", err)
 	}
@@ -71,12 +71,12 @@ func TestCrontabDeleteRemovesOnlyMatch(t *testing.T) {
 	c := New()
 	c.Runner = f.run
 
-	jobs, err := c.List(context.Background())
+	jobs, err := c.List(t.Context())
 	if err != nil {
 		t.Fatalf("list: %v", err)
 	}
 	target := jobs[0]
-	if err := c.Delete(context.Background(), target.ID); err != nil {
+	if err := c.Delete(t.Context(), target.ID); err != nil {
 		t.Fatalf("delete: %v", err)
 	}
 	if !strings.Contains(f.content, "@daily /usr/bin/bar") {
@@ -91,7 +91,7 @@ func TestCrontabDeleteUnknownIDReturnsNotFound(t *testing.T) {
 	f := &fakeCrontab{content: "*/5 * * * * /usr/bin/foo\n"}
 	c := New()
 	c.Runner = f.run
-	if err := c.Delete(context.Background(), "crontab:deadbeef"); err != cron.ErrNotFound {
+	if err := c.Delete(t.Context(), "crontab:deadbeef"); err != cron.ErrNotFound {
 		t.Errorf("want cron.ErrNotFound, got %v", err)
 	}
 }
@@ -101,8 +101,8 @@ func TestCrontabDeleteLastEntryRemovesCrontab(t *testing.T) {
 	c := New()
 	c.Runner = f.run
 
-	jobs, _ := c.List(context.Background())
-	if err := c.Delete(context.Background(), jobs[0].ID); err != nil {
+	jobs, _ := c.List(t.Context())
+	if err := c.Delete(t.Context(), jobs[0].ID); err != nil {
 		t.Fatalf("delete: %v", err)
 	}
 	// We expect a `crontab -r` (full removal) rather than a no-op replace.
