@@ -3,7 +3,6 @@
 package systemd
 
 import (
-	"bufio"
 	"cmp"
 	"context"
 	"fmt"
@@ -34,15 +33,6 @@ func DefaultSystemctlRunner(ctx context.Context, args []string) ([]byte, error) 
 
 // Compile-time guard: Systemd satisfies cron.Source.
 var _ cron.Source = (*Systemd)(nil)
-
-// prefixed returns p+s when s is non-empty, "" otherwise. Lets cmp.Or
-// chains express conditional fallbacks ("every <v>" only if v is set).
-func prefixed(p, s string) string {
-	if s == "" {
-		return ""
-	}
-	return p + s
-}
 
 // Systemd is a cron.Source backed by systemd timer units in a directory. User
 // scope reads ~/.config/systemd/user with delete enabled; system scope reads
@@ -135,32 +125,6 @@ func (s *Systemd) readTimer(path string) (cron.Job, error) {
 		Path:     path,
 		Raw:      string(raw),
 	}, nil
-}
-
-// parseUnit reads a systemd unit file into a flat map keyed by "Section.Key".
-// Multi-line values and continuations aren't supported — eon doesn't need
-// them, and ignoring them keeps the parser tiny and predictable.
-func parseUnit(content string) map[string]string {
-	out := map[string]string{}
-	scanner := bufio.NewScanner(strings.NewReader(content))
-	scanner.Buffer(make([]byte, 1024*1024), 1024*1024)
-	section := ""
-	for scanner.Scan() {
-		line := strings.TrimSpace(scanner.Text())
-		if line == "" || strings.HasPrefix(line, "#") || strings.HasPrefix(line, ";") {
-			continue
-		}
-		if strings.HasPrefix(line, "[") && strings.HasSuffix(line, "]") {
-			section = strings.TrimSuffix(strings.TrimPrefix(line, "["), "]")
-			continue
-		}
-		if i := strings.Index(line, "="); i > 0 {
-			k := strings.TrimSpace(line[:i])
-			v := strings.TrimSpace(line[i+1:])
-			out[section+"."+k] = v
-		}
-	}
-	return out
 }
 
 // Delete implements cron.Source. We stop+disable the timer (best-effort),
