@@ -21,7 +21,17 @@ const (
 	viewReadOnly // shown when the user tries to delete a system-scope job
 )
 
-const flashDuration = 3 * time.Second
+// Timing budget for asynchronous operations. flashDuration is how long a
+// status-bar one-liner stays visible. listTimeout bounds Manager.List —
+// fans out across multiple Sources that each may shell out to
+// launchctl/systemctl/crontab; needs headroom for cold caches without
+// freezing the UI on a stuck binary. deleteTimeout bounds one Source.Delete
+// — a single unlink or launchctl unload is sub-100ms in the healthy case.
+const (
+	flashDuration = 3 * time.Second
+	listTimeout   = 5 * time.Second
+	deleteTimeout = 2 * time.Second
+)
 
 type detailTab int
 
@@ -44,6 +54,10 @@ func (t detailTab) String() string {
 	return ""
 }
 
+// Model holds every piece of TUI state: the loaded jobs, the cursor, the
+// filter, the active view, and the bubbletea sub-models for the detail
+// viewports. It is passed by value to bubbletea's Update/View loop and
+// mutated in place by the helpers in state.go.
 type Model struct {
 	mgr   *cron.Manager
 	keys  keyMap
@@ -80,6 +94,9 @@ type Model struct {
 	flashUntil  time.Time
 }
 
+// New constructs a Model wired to the given Manager. The Model is returned
+// by value because bubbletea's Update loop expects a value-receiver Model
+// it can copy on every event.
 func New(mgr *cron.Manager) Model {
 	ti := textinput.New()
 	ti.Placeholder = "filter"
@@ -108,16 +125,6 @@ type flashMsg struct {
 	text string
 	ok   bool
 }
-
-// listTimeout bounds Manager.List — fans out across multiple Sources, each
-// of which may shell out to launchctl/systemctl/crontab. A stuck binary
-// shouldn't freeze the UI, but we need headroom for cold caches.
-const listTimeout = 5 * time.Second
-
-// deleteTimeout bounds a single Source.Delete — typically one unlink or one
-// launchctl unload, both sub-100ms in the healthy case. 2s is generous
-// enough for a slow disk and tight enough to surface a stuck call.
-const deleteTimeout = 2 * time.Second
 
 func reload(mgr *cron.Manager) tea.Cmd {
 	return func() tea.Msg {

@@ -8,12 +8,9 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
-
-	"github.com/spf13/cobra"
-
-	"slices"
 
 	"github.com/rednafi/eon/cron"
 )
@@ -207,10 +204,3 @@ func TestTailReturnsLastNLines(t *testing.T) {
 	}
 }
 
-// silenceCobra returns a no-op Run function so cobra doesn't print its own
-// "Error:" prefix on top of the test's expected error formatting. Used in
-// individual tests via cobra.Command.SetErrPrefix; left here for future
-// reuse.
-var _ = silenceCobra
-
-func silenceCobra(c *cobra.Command) { c.SilenceErrors = true }

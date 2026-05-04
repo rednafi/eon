@@ -91,6 +91,9 @@ type Manager struct {
 	sources []Source
 }
 
+// NewManager bundles the given Sources into a Manager. Order matters: it
+// determines the order of fan-out for List/Find/Delete, and it shows up in
+// SourceNames() which the TUI displays.
 func NewManager(sources ...Source) *Manager { return &Manager{sources: sources} }
 
 // Sources exposes the underlying Sources for diagnostics and TUI labels.

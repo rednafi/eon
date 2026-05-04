@@ -27,6 +27,9 @@ import (
 // Compile-time guard: EtcCron satisfies cron.Source.
 var _ cron.Source = (*EtcCron)(nil)
 
+// EtcCron is the cron.Source for /etc/crontab plus /etc/cron.d/* drop-ins.
+// Always read-only — these files are owned by root or the package manager;
+// eon won't offer to delete them.
 type EtcCron struct {
 	// MainPath is the /etc/crontab single-file source.
 	MainPath string
