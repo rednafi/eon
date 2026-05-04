@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/rednafi/eon/cron"
+	"slices"
 )
 
 // fakeCrontab returns a CrontabRunner that pretends a fixed crontab exists,
@@ -17,7 +18,7 @@ type fakeCrontab struct {
 }
 
 func (f *fakeCrontab) run(_ context.Context, args []string, stdin string) ([]byte, error) {
-	f.calls = append(f.calls, append([]string(nil), args...))
+	f.calls = append(f.calls, slices.Clone(args))
 	f.stdin = append(f.stdin, stdin)
 	switch {
 	case len(args) == 1 && args[0] == "-l":

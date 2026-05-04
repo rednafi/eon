@@ -68,7 +68,7 @@ func NewSystem() *Launchd {
 // Name implements cron.Source.
 func (l *Launchd) Name() string { return "launchd-" + l.Tag }
 
-// cron.Scope implements cron.Source. ReadOnly distinguishes the user's LaunchAgents
+// Scope implements cron.Source. ReadOnly distinguishes the user's LaunchAgents
 // (writable) from the /Library and /System/Library locations (system-scope).
 func (l *Launchd) Scope() cron.Scope {
 	if l.ReadOnly {

@@ -61,7 +61,7 @@ func New() *Crontab {
 // Name implements cron.Source.
 func (c *Crontab) Name() string { return "crontab" }
 
-// cron.Scope implements cron.Source. The user's own crontab is always writable.
+// Scope implements cron.Source. The user's own crontab is always writable.
 func (c *Crontab) Scope() cron.Scope { return cron.ScopeUser }
 
 // List implements cron.Source. Each non-comment, non-blank line in the user crontab

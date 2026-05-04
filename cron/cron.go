@@ -91,10 +91,9 @@ type Manager struct {
 	sources []Source
 }
 
-// NewManager builds a Manager from the given Sources.
 func NewManager(sources ...Source) *Manager { return &Manager{sources: sources} }
 
-// Sources returns the underlying Sources, used for diagnostics and rendering.
+// Sources exposes the underlying Sources for diagnostics and TUI labels.
 func (m *Manager) Sources() []Source { return m.sources }
 
 // SourceNames returns one Name per Source, in registration order.

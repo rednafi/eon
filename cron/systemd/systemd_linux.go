@@ -68,7 +68,7 @@ func NewUser() *Systemd {
 // Name implements cron.Source.
 func (s *Systemd) Name() string { return "systemd-" + s.Tag }
 
-// cron.Scope implements cron.Source. ReadOnly marks the /etc and /usr/lib system
+// Scope implements cron.Source. ReadOnly marks the /etc and /usr/lib system
 // timer dirs; the per-user dir stays writable.
 func (s *Systemd) Scope() cron.Scope {
 	if s.ReadOnly {
@@ -77,7 +77,7 @@ func (s *Systemd) Scope() cron.Scope {
 	return cron.ScopeUser
 }
 
-// List implementsSource. We read every *.timer file in Dir, then optionally
+// List implements cron.Source. We read every *.timer file in Dir, then optionally
 // enrich with `systemctl list-timers --all` runtime data.
 func (s *Systemd) List(ctx context.Context) ([]cron.Job, error) {
 	entries, err := os.ReadDir(s.Dir)

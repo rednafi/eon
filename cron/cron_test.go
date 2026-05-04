@@ -5,6 +5,7 @@ import (
 	"errors"
 	"strings"
 	"testing"
+	"slices"
 )
 
 // stubOrigin lets manager tests focus on the Manager logic — fanout, sort,
@@ -18,7 +19,7 @@ type stubOrigin struct {
 func (s *stubOrigin) Name() string  { return s.name }
 func (s *stubOrigin) Scope() Scope  { return ScopeUser }
 func (s *stubOrigin) List(_ context.Context) ([]Job, error) {
-	return append([]Job(nil), s.jobs...), nil
+	return slices.Clone(s.jobs), nil
 }
 func (s *stubOrigin) Delete(_ context.Context, id string) error {
 	if s.del != nil {

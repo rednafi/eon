@@ -14,6 +14,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/rednafi/eon/cron"
+	"slices"
 )
 
 // fakeOrigin is a minimal Source used to assemble a Manager without touching
@@ -27,7 +28,7 @@ type fakeOrigin struct {
 func (f *fakeOrigin) Name() string      { return "fake" }
 func (f *fakeOrigin) Scope() cron.Scope { return cron.ScopeUser }
 func (f *fakeOrigin) List(_ context.Context) ([]cron.Job, error) {
-	return append([]cron.Job(nil), f.jobs...), nil
+	return slices.Clone(f.jobs), nil
 }
 func (f *fakeOrigin) Delete(_ context.Context, id string) error {
 	for i, j := range f.jobs {

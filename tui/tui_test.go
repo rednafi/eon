@@ -8,6 +8,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/rednafi/eon/cron"
+	"slices"
 )
 
 type stubOrigin struct {
@@ -18,7 +19,7 @@ type stubOrigin struct {
 func (s *stubOrigin) Name() string      { return "stub" }
 func (s *stubOrigin) Scope() cron.Scope { return cron.ScopeUser }
 func (s *stubOrigin) List(_ context.Context) ([]cron.Job, error) {
-	return append([]cron.Job(nil), s.jobs...), nil
+	return slices.Clone(s.jobs), nil
 }
 func (s *stubOrigin) Delete(_ context.Context, id string) error {
 	for i, j := range s.jobs {
