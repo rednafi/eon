@@ -20,7 +20,8 @@ type fakeOrigin struct {
 	deleted []string
 }
 
-func (f *fakeOrigin) Name() string { return "fake" }
+func (f *fakeOrigin) Name() string      { return "fake" }
+func (f *fakeOrigin) Scope() cron.Scope { return cron.ScopeUser }
 func (f *fakeOrigin) List(_ context.Context) ([]cron.Job, error) {
 	return append([]cron.Job(nil), f.jobs...), nil
 }
@@ -54,7 +55,7 @@ func TestRunListEmpty(t *testing.T) {
 func TestRunListHidesSystemByDefault(t *testing.T) {
 	mgr, _ := newFakeManager(
 		cron.Job{ID: "fake:user", Kind: "fake", Name: "user-job", Schedule: "@daily"},
-		cron.Job{ID: "fake:sys", Kind: "fake", Name: "sys-job", Schedule: "@daily", System: true},
+		cron.Job{ID: "fake:sys", Kind: "fake", Name: "sys-job", Schedule: "@daily", Scope: cron.ScopeSystem},
 	)
 	var out bytes.Buffer
 	if code := Run(context.Background(), mgr, []string{"list"}, nil, &out, &out); code != 0 {
@@ -71,7 +72,7 @@ func TestRunListHidesSystemByDefault(t *testing.T) {
 func TestRunListAllShowsSystem(t *testing.T) {
 	mgr, _ := newFakeManager(
 		cron.Job{ID: "fake:user", Kind: "fake", Name: "user-job"},
-		cron.Job{ID: "fake:sys", Kind: "fake", Name: "sys-job", System: true},
+		cron.Job{ID: "fake:sys", Kind: "fake", Name: "sys-job", Scope: cron.ScopeSystem},
 	)
 	var out bytes.Buffer
 	if code := Run(context.Background(), mgr, []string{"list", "--all"}, nil, &out, &out); code != 0 {

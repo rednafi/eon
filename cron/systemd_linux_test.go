@@ -117,8 +117,11 @@ func TestSystemdReadOnlyMarksAndRefuses(t *testing.T) {
 	if err != nil {
 		t.Fatalf("list: %v", err)
 	}
-	if len(jobs) != 1 || !jobs[0].System {
-		t.Fatalf("read-only source must mark Job.System=true: %+v", jobs)
+	if len(jobs) != 1 {
+		t.Fatalf("want 1 job, got %d", len(jobs))
+	}
+	if got := src.Scope(); got != ScopeSystem {
+		t.Errorf("read-only source scope = %v, want %v", got, ScopeSystem)
 	}
 	err = src.Delete(context.Background(), jobs[0].ID)
 	if err == nil || !strings.Contains(err.Error(), "read-only") {

@@ -1,19 +1,22 @@
-// Package origin defines the cron-origin abstraction and shared types.
-//
-// A "cron" in eon is any recurring local job: a crontab line, a launchd agent,
-// a systemd timer, or anything else an Source plugin understands. Each origin
-// returns Jobs with a stable ID that downstream code (CLI, TUI) can use to
-// show details, tail logs, or delete.
+// Package cron exposes the eon domain types and the per-platform Source
+// implementations. A Source produces Jobs from one backend (crontab, launchd,
+// systemd, …); the Manager fans calls out across them. Everything that
+// classifies, displays, or mutates a cron lives here so the CLI and TUI can
+// stay narrow.
 package cron
 
 import (
+	"cmp"
 	"context"
+	"errors"
 	"fmt"
-	"sort"
+	"slices"
+	"strings"
 	"time"
 )
 
-// Kind identifies the source backend a Job came from.
+// Kind identifies the backend a Job came from. Stored on Job so renderers
+// can tell launchd from systemd without re-parsing the ID.
 type Kind string
 
 const (
@@ -22,76 +25,77 @@ const (
 	KindSystemd Kind = "systemd"
 )
 
-// Job is a single scheduled task surfaced by aSource.
+// Scope distinguishes user-writable jobs from read-only OS-installed ones.
+// The Manager attaches the owning Source's scope to every Job it returns,
+// so callers can filter on Job.Scope without knowing which Source produced
+// it.
+type Scope string
+
+const (
+	ScopeUser   Scope = "user"
+	ScopeSystem Scope = "system"
+)
+
+// Job is a single scheduled task surfaced by a Source.
 type Job struct {
-	// ID is unique across all sources (e.g. "launchd:com.foo.bar").
+	// ID is unique across all sources (e.g. "launchd-user:com.foo.bar").
 	ID string
-	// Kind is the source backend.
+	// Kind is the backend type — crontab, launchd, systemd.
 	Kind Kind
-	// Name is a short human label. For launchd this is the Label; for crontab
-	// it is the first token of the command or a synthesized name.
+	// Scope is "user" for jobs the running user can mutate; "system" for
+	// read-only OS-installed crons (/Library/Launch*, /etc/crontab, etc.).
+	Scope Scope
+	// Name is a short human label. For launchd this is the Label; for
+	// crontab it is the basename of the program token.
 	Name string
-	// Schedule is the human-readable schedule expression (cron expr or
-	// "every Ns" for launchd StartInterval).
+	// Schedule is the human-readable schedule (cron expression, "every 5m",
+	// "at load", …).
 	Schedule string
-	// Command is the full command line that runs.
+	// Command is the full command line.
 	Command string
-	// NextRun is the next scheduled execution, if computable.
-	NextRun *time.Time
-	// LastRun is the last known execution time (best-effort: launchctl print
-	// or stat of the StandardOutPath).
-	LastRun *time.Time
-	// Status is a short status string ("loaded", "running", "exited 1", ...).
+	// NextRun, LastRun are best-effort — left nil when the backend can't
+	// answer.
+	NextRun, LastRun *time.Time
+	// Status is a short label ("loaded", "running", "exited 1", …).
 	Status string
-	// PID is the process ID if currently running, 0 otherwise.
 	PID int
-	// LastExitCode is the most recent exit code, 0 if unknown.
 	LastExitCode int
-	// StdoutPath is the file the job writes stdout to, if any.
-	StdoutPath string
-	// StderrPath is the file the job writes stderr to, if any.
-	StderrPath string
-	// Path is the on-disk file backing the job (plist path, crontab path).
-	Path string
-	// Raw is the verbatim source line/plist content for the "raw" tab.
+	// Stdout/StderrPath, Path are the files the renderer needs to display
+	// raw definitions and tail logs.
+	StdoutPath, StderrPath, Path string
+	// Raw is the verbatim source line / plist content for the "raw" tab.
 	Raw string
-	// System is true for OS-installed jobs in read-only locations
-	// (/Library/Launch*, /etc/crontab, /etc/systemd/system, ...). The CLI
-	// and TUI hide these by default and surface them behind a flag/key so
-	// the user-scope view stays focused on jobs the user (or their agents)
-	// created.
-	System bool
 }
 
-// Source enumerates and mutates jobs from a single backend.
+// Source enumerates and (when writable) mutates jobs from one backend.
 type Source interface {
-	// Name returns a short, stable identifier ("crontab", "launchd-user").
+	// Name returns a short, stable identifier (e.g. "crontab", "launchd-user").
 	Name() string
+	// Scope reports whether this Source is user-writable or system-readonly.
+	// The Manager stamps every Job with its owning Source's scope.
+	Scope() Scope
 	// List returns the current snapshot of jobs.
 	List(ctx context.Context) ([]Job, error)
-	// Delete removes a job by its ID. Implementations must be idempotent:
-	// deleting an already-gone job should return ErrNotFound, not an error
-	// for "not loaded" or "file already removed".
+	// Delete removes a job by ID. Idempotent: deleting an already-gone job
+	// returns ErrNotFound. Read-only Sources may return a sentinel error.
 	Delete(ctx context.Context, id string) error
 }
 
-// ErrNotFound is returned bySource.Delete when no matching job exists.
-var ErrNotFound = fmt.Errorf("job not found")
+// ErrNotFound is returned by Source.Delete when no matching job exists.
+var ErrNotFound = errors.New("job not found")
 
-// Manager fans out across multiple Sources.
+// Manager fans calls out across multiple Sources.
 type Manager struct {
 	sources []Source
 }
 
-// NewManager builds a Manager from the given sources.
-func NewManager(sources ...Source) *Manager {
-	return &Manager{sources: sources}
-}
+// NewManager builds a Manager from the given Sources.
+func NewManager(sources ...Source) *Manager { return &Manager{sources: sources} }
 
- // Sources returns the underlying sources (for diagnostics).
+// Sources returns the underlying Sources, used for diagnostics and rendering.
 func (m *Manager) Sources() []Source { return m.sources }
 
-// SourceNames returns one Name per origin, in registration order.
+// SourceNames returns one Name per Source, in registration order.
 func (m *Manager) SourceNames() []string {
 	out := make([]string, len(m.sources))
 	for i, s := range m.sources {
@@ -100,9 +104,9 @@ func (m *Manager) SourceNames() []string {
 	return out
 }
 
-// List aggregates jobs from every source. Errors from individual sources are
-// returned alongside whatever results the other sources produced — a broken
-// crontab parser shouldn't hide healthy launchd entries.
+// List aggregates jobs from every Source. Per-Source errors are returned
+// alongside the jobs that did succeed — a broken crontab parser shouldn't
+// hide healthy launchd entries.
 func (m *Manager) List(ctx context.Context) ([]Job, []error) {
 	var (
 		all  []Job
@@ -114,32 +118,39 @@ func (m *Manager) List(ctx context.Context) ([]Job, []error) {
 			errs = append(errs, fmt.Errorf("%s: %w", s.Name(), err))
 			continue
 		}
+		scope := s.Scope()
+		for i := range jobs {
+			// Don't clobber a Scope the Source already set; this lets test
+			// fakes return mixed-scope job sets without subclassing the Source.
+			if jobs[i].Scope == "" {
+				jobs[i].Scope = scope
+			}
+		}
 		all = append(all, jobs...)
 	}
-	sort.Slice(all, func(i, j int) bool {
-		if all[i].Kind != all[j].Kind {
-			return all[i].Kind < all[j].Kind
+	slices.SortFunc(all, func(a, b Job) int {
+		if c := cmp.Compare(a.Kind, b.Kind); c != 0 {
+			return c
 		}
-		return all[i].Name < all[j].Name
+		return cmp.Compare(a.Name, b.Name)
 	})
 	return all, errs
 }
 
-// Find resolves a job by ID across all sources. The match is exact on Job.ID,
-// then falls back to a case-insensitive prefix match on ID or Name when
-// exactly one job matches — that lets users type a short fragment like
-// "stremio" instead of "launchd:com.stremio.service".
+// Find resolves a job by ID across all Sources. Exact ID match wins; otherwise
+// a case-insensitive substring match on ID, Name, or Command must produce
+// exactly one hit.
 func (m *Manager) Find(ctx context.Context, idOrPrefix string) (Job, error) {
 	jobs, _ := m.List(ctx)
-	for _, j := range jobs {
-		if j.ID == idOrPrefix {
-			return j, nil
-		}
+	if i := slices.IndexFunc(jobs, func(j Job) bool { return j.ID == idOrPrefix }); i >= 0 {
+		return jobs[i], nil
 	}
+	q := strings.ToLower(idOrPrefix)
 	var matches []Job
-	lower := toLower(idOrPrefix)
 	for _, j := range jobs {
-		if containsFold(j.ID, lower) || containsFold(j.Name, lower) || containsFold(j.Command, lower) {
+		if strings.Contains(strings.ToLower(j.ID), q) ||
+			strings.Contains(strings.ToLower(j.Name), q) ||
+			strings.Contains(strings.ToLower(j.Command), q) {
 			matches = append(matches, j)
 		}
 	}
@@ -153,12 +164,15 @@ func (m *Manager) Find(ctx context.Context, idOrPrefix string) (Job, error) {
 	}
 }
 
-// Delete dispatches to the matching source.
+// Delete dispatches to the matching Source. Sources that don't recognise the
+// ID return ErrNotFound; we walk the chain until one accepts.
 func (m *Manager) Delete(ctx context.Context, id string) error {
 	for _, s := range m.sources {
-		if err := s.Delete(ctx, id); err == nil {
+		err := s.Delete(ctx, id)
+		if err == nil {
 			return nil
-		} else if err != ErrNotFound {
+		}
+		if !errors.Is(err, ErrNotFound) {
 			return err
 		}
 	}

@@ -54,8 +54,17 @@ func NewUserSystemd() *Systemd {
 	}
 }
 
-// Name implementsSource.
+// Name implements Source.
 func (s *Systemd) Name() string { return "systemd-" + s.Tag }
+
+// Scope implements Source. ReadOnly marks the /etc and /usr/lib system
+// timer dirs; the per-user dir stays writable.
+func (s *Systemd) Scope() Scope {
+	if s.ReadOnly {
+		return ScopeSystem
+	}
+	return ScopeUser
+}
 
 // List implementsSource. We read every *.timer file in Dir, then optionally
 // enrich with `systemctl list-timers --all` runtime data.
@@ -120,7 +129,6 @@ func (s *Systemd) readTimer(path string) (Job, error) {
 		Status:   "scheduled",
 		Path:     path,
 		Raw:      string(raw),
-		System:   s.ReadOnly,
 	}, nil
 }
 

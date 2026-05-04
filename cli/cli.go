@@ -129,7 +129,7 @@ func runList(ctx context.Context, mgr *cron.Manager, argv []string, stdout, stde
 func filterUser(jobs []cron.Job) []cron.Job {
 	out := make([]cron.Job, 0, len(jobs))
 	for _, j := range jobs {
-		if !j.System {
+		if j.Scope != cron.ScopeSystem {
 			out = append(out, j)
 		}
 	}

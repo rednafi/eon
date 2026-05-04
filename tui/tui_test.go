@@ -15,7 +15,8 @@ type stubOrigin struct {
 	deleted []string
 }
 
-func (s *stubOrigin) Name() string { return "stub" }
+func (s *stubOrigin) Name() string      { return "stub" }
+func (s *stubOrigin) Scope() cron.Scope { return cron.ScopeUser }
 func (s *stubOrigin) List(_ context.Context) ([]cron.Job, error) {
 	return append([]cron.Job(nil), s.jobs...), nil
 }
@@ -164,8 +165,8 @@ func TestTruncateMiddleKeepsBothEnds(t *testing.T) {
 func TestModelTogglesSystemVisibility(t *testing.T) {
 	jobs := []cron.Job{
 		{ID: "stub:user1", Name: "user1"},
-		{ID: "stub:sys1", Name: "sys1", System: true},
-		{ID: "stub:sys2", Name: "sys2", System: true},
+		{ID: "stub:sys1", Name: "sys1", Scope: cron.ScopeSystem},
+		{ID: "stub:sys2", Name: "sys2", Scope: cron.ScopeSystem},
 	}
 	m, _ := newTestModel(jobs...)
 	mm, _ := m.Update(jobsLoadedMsg{jobs: jobs})

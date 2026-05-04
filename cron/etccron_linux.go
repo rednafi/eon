@@ -37,8 +37,12 @@ func NewEtcCron() *EtcCron {
 	}
 }
 
-// Name implementsSource.
+// Name implements Source.
 func (e *EtcCron) Name() string { return "crontab-system" }
+
+// Scope implements Source. /etc/crontab and /etc/cron.d are owned by root or
+// the package manager, so we never offer to mutate them.
+func (e *EtcCron) Scope() Scope { return ScopeSystem }
 
 // List implementsSource. Errors reading individual files are tolerated —
 // surfacing the readable ones is more useful than failing the whole list.
@@ -107,7 +111,6 @@ func (e *EtcCron) parseFile(path string, data []byte, group string) []Job {
 			Status:   "scheduled",
 			Path:     path,
 			Raw:      line,
-			System:   true,
 		}
 		if sched, err := e.parser.Parse(schedule); err == nil {
 			next := sched.Next(time.Now())

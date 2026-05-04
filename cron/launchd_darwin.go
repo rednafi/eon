@@ -61,6 +61,15 @@ func NewSystemLaunchd() *Launchd {
 // Name implements Source.
 func (l *Launchd) Name() string { return "launchd-" + l.Tag }
 
+// Scope implements Source. ReadOnly distinguishes the user's LaunchAgents
+// (writable) from the /Library and /System/Library locations (system-scope).
+func (l *Launchd) Scope() Scope {
+	if l.ReadOnly {
+		return ScopeSystem
+	}
+	return ScopeUser
+}
+
 // plistDoc is the subset of launchd plist keys we care about. Apple's full
 // schema is huge; we only need scheduling, paths, and identity.
 //
@@ -147,7 +156,6 @@ func (l *Launchd) readPlist(path string) (Job, error) {
 		StderrPath: doc.StandardErrorPath,
 		Raw:        string(raw),
 		Status:     launchdStatus(doc),
-		System:     l.ReadOnly,
 	}
 	if doc.StartInterval > 0 {
 		// Best-effort next run from interval — we don't know the load time so

@@ -41,10 +41,10 @@ PATH=/usr/bin:/bin
 	if len(jobs) != 3 {
 		t.Fatalf("want 3 jobs, got %d: %v", len(jobs), jobs)
 	}
+	if got := src.Scope(); got != ScopeSystem {
+		t.Errorf("EtcCron scope = %v, want %v", got, ScopeSystem)
+	}
 	for _, j := range jobs {
-		if !j.System {
-			t.Errorf("expected System=true for %q", j.ID)
-		}
 		if j.Kind != KindCrontab {
 			t.Errorf("expected crontab kind for %q", j.ID)
 		}

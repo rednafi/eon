@@ -54,6 +54,9 @@ func NewCrontab() *Crontab {
 // Name implements Source.
 func (c *Crontab) Name() string { return "crontab" }
 
+// Scope implements Source. The user's own crontab is always writable.
+func (c *Crontab) Scope() Scope { return ScopeUser }
+
 // List implements Source. Each non-comment, non-blank line in the user crontab
 // becomes a Job. The ID is "crontab:<sha1(line)[:8]>" so deletes survive
 // reordering of unrelated lines.

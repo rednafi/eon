@@ -195,7 +195,7 @@ func (m *Model) recomputeFilter() {
 		m.visibleIdx = make([]int, 0, len(m.jobs))
 	}
 	for i, j := range m.jobs {
-		if j.System && !m.showSystem {
+		if j.Scope == cron.ScopeSystem && !m.showSystem {
 			continue
 		}
 		if q == "" || jobMatches(&j, q) {

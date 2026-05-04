@@ -15,7 +15,8 @@ type stubOrigin struct {
 	del  func(string) error
 }
 
-func (s *stubOrigin) Name() string { return s.name }
+func (s *stubOrigin) Name() string  { return s.name }
+func (s *stubOrigin) Scope() Scope  { return ScopeUser }
 func (s *stubOrigin) List(_ context.Context) ([]Job, error) {
 	return append([]Job(nil), s.jobs...), nil
 }
@@ -65,9 +66,10 @@ type errOrigin struct {
 	err  error
 }
 
-func (e *errOrigin) Name() string                                { return e.name }
-func (e *errOrigin) List(_ context.Context) ([]Job, error)       { return nil, e.err }
-func (e *errOrigin) Delete(_ context.Context, _ string) error    { return ErrNotFound }
+func (e *errOrigin) Name() string                             { return e.name }
+func (e *errOrigin) Scope() Scope                             { return ScopeUser }
+func (e *errOrigin) List(_ context.Context) ([]Job, error)    { return nil, e.err }
+func (e *errOrigin) Delete(_ context.Context, _ string) error { return ErrNotFound }
 
 func TestManagerFindExactThenPrefix(t *testing.T) {
 	mgr := NewManager(&stubOrigin{
