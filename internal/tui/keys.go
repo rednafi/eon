@@ -1,24 +1,12 @@
 package tui
 
-import "github.com/charmbracelet/bubbles/key"
+import "charm.land/bubbles/v2/key"
 
-// keyMap centralises every keybinding so the help line stays in sync with
-// what the model actually responds to.
 type keyMap struct {
-	Up      key.Binding
-	Down    key.Binding
-	Top     key.Binding
-	Bottom  key.Binding
-	Filter  key.Binding
-	Refresh key.Binding
-	Enter   key.Binding
-	Back    key.Binding
-	Delete  key.Binding
-	Tab     key.Binding
-	Quit    key.Binding
-	Help    key.Binding
-	Confirm key.Binding
-	Cancel  key.Binding
+	Up, Down, Top, Bottom        key.Binding
+	Filter, Refresh, Enter, Back key.Binding
+	Delete, Tab, Quit, Help      key.Binding
+	Confirm, Cancel              key.Binding
 }
 
 func newKeyMap() keyMap {

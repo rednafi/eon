@@ -85,6 +85,15 @@ func NewManager(sources ...Origin) *Manager {
 // Origins returns the underlying sources (for diagnostics).
 func (m *Manager) Origins() []Origin { return m.sources }
 
+// OriginNames returns one Name per origin, in registration order.
+func (m *Manager) OriginNames() []string {
+	out := make([]string, len(m.sources))
+	for i, s := range m.sources {
+		out[i] = s.Name()
+	}
+	return out
+}
+
 // List aggregates jobs from every source. Errors from individual sources are
 // returned alongside whatever results the other sources produced — a broken
 // crontab parser shouldn't hide healthy launchd entries.

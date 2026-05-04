@@ -11,7 +11,7 @@ import (
 	"os/signal"
 	"syscall"
 
-	tea "github.com/charmbracelet/bubbletea"
+	tea "charm.land/bubbletea/v2"
 
 	"github.com/rednafi/eon/internal/cli"
 	"github.com/rednafi/eon/internal/origin"
@@ -37,7 +37,7 @@ func main() {
 }
 
 func runTUI(mgr *origin.Manager) {
-	p := tea.NewProgram(tui.New(mgr), tea.WithAltScreen())
+	p := tea.NewProgram(tui.New(mgr))
 	if _, err := p.Run(); err != nil {
 		fmt.Fprintln(os.Stderr, "tui:", err)
 		os.Exit(1)

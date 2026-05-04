@@ -3,78 +3,69 @@ package tui
 import (
 	"strings"
 
-	"github.com/charmbracelet/bubbles/key"
-	"github.com/charmbracelet/bubbles/viewport"
-	tea "github.com/charmbracelet/bubbletea"
+	"charm.land/bubbles/v2/key"
+	"charm.land/bubbles/v2/viewport"
+	tea "charm.land/bubbletea/v2"
 
 	"github.com/rednafi/eon/internal/origin"
 )
 
-// Update implements tea.Model.
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
-		m.width = msg.Width
-		m.height = msg.Height
-		// Subtract title (1) + header (1) + separator (1) + status line (1).
-		body := max(1, msg.Height-4)
-		m.detailVP = viewport.New(max(20, msg.Width-2), body-2)
-		m.logsVP = viewport.New(max(20, msg.Width-2), body-2)
-		m.rawVP = viewport.New(max(20, msg.Width-2), body-2)
-		m.refreshDetailContent()
+		m.width, m.height = msg.Width, msg.Height
+		body := max(1, m.height-headerHeight-statusHeight-2)
+		w := max(20, m.width-panelChromeX)
+		m.detailVP = viewport.New(viewport.WithWidth(w), viewport.WithHeight(body-2))
+		m.rawVP = viewport.New(viewport.WithWidth(w), viewport.WithHeight(body-2))
+		m.logsVP = viewport.New(viewport.WithWidth(w), viewport.WithHeight(body-2))
+		m.recomputeColWidths()
+		if m.view == viewDetail {
+			m.refreshDetailContent()
+		}
 		return m, nil
 
 	case jobsLoadedMsg:
 		m.jobs = msg.jobs
 		m.loadErr = msg.err
+		m.recomputeFilter()
+		m.recomputeColWidths()
 		if m.cursor >= len(m.jobs) {
 			m.cursor = max(0, len(m.jobs)-1)
 		}
-		// If we're on the detail view and the underlying job is gone, drop
-		// back to the list. This covers the case where a delete succeeded
-		// while the user was reading detail.
-		if m.view == viewDetail && len(m.filteredIndexes()) == 0 {
+		if m.view == viewDetail && len(m.visibleIdx) == 0 {
 			m.view = viewList
 		}
-		m.refreshDetailContent()
+		if m.view == viewDetail {
+			m.refreshDetailContent()
+		}
 		return m, nil
 
 	case flashMsg:
 		m.flash = msg.text
-		// Reload to reflect any deletion.
 		return m, reload(m.mgr)
 
-	case tea.KeyMsg:
+	case tea.KeyPressMsg:
 		return m.handleKey(msg)
 	}
 
-	// Forward to active viewport for mouse-wheel and other passthrough.
-	switch m.view {
-	case viewDetail:
+	if m.view == viewDetail {
 		var cmd tea.Cmd
-		switch m.detailTab {
-		case tabOverview:
-			m.detailVP, cmd = m.detailVP.Update(msg)
-		case tabRaw:
-			m.rawVP, cmd = m.rawVP.Update(msg)
-		case tabLogs:
-			m.logsVP, cmd = m.logsVP.Update(msg)
-		}
+		vp := m.activeVP()
+		*vp, cmd = vp.Update(msg)
 		return m, cmd
 	}
 	return m, nil
 }
 
-func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	// Filter input owns keystrokes when active. We only intercept Esc and
-	// Enter so the user can dismiss/commit; everything else flows to the
-	// textinput so typing /, j, k, etc. doesn't move the cursor underneath.
+func (m Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	if m.filterOn {
 		switch msg.String() {
 		case "esc":
 			m.filterOn = false
 			m.filter.Blur()
 			m.filter.SetValue("")
+			m.recomputeFilter()
 			return m, nil
 		case "enter":
 			m.filterOn = false
@@ -83,8 +74,8 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		var cmd tea.Cmd
 		m.filter, cmd = m.filter.Update(msg)
-		// Reset cursor when the visible list shrinks under us.
-		if m.cursor >= len(m.filteredIndexes()) {
+		m.recomputeFilter()
+		if m.cursor >= len(m.visibleIdx) {
 			m.cursor = 0
 		}
 		return m, cmd
@@ -99,7 +90,6 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m, deleteCmd(m.mgr, id)
 		case key.Matches(msg, m.keys.Cancel):
 			m.view = viewList
-			return m, nil
 		}
 		return m, nil
 
@@ -127,43 +117,30 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		case key.Matches(msg, m.keys.Quit):
 			return m, tea.Quit
 		}
-		// Forward to the active viewport for scrolling.
 		var cmd tea.Cmd
-		switch m.detailTab {
-		case tabOverview:
-			m.detailVP, cmd = m.detailVP.Update(msg)
-		case tabRaw:
-			m.rawVP, cmd = m.rawVP.Update(msg)
-		case tabLogs:
-			m.logsVP, cmd = m.logsVP.Update(msg)
-		}
+		vp := m.activeVP()
+		*vp, cmd = vp.Update(msg)
 		return m, cmd
 
 	case viewList:
-		visible := m.filteredIndexes()
 		switch {
 		case key.Matches(msg, m.keys.Quit):
 			return m, tea.Quit
 		case key.Matches(msg, m.keys.Filter):
 			m.filterOn = true
-			m.filter.Focus()
-			return m, nil
+			return m, m.filter.Focus()
 		case key.Matches(msg, m.keys.Up):
 			if m.cursor > 0 {
 				m.cursor--
 			}
-			return m, nil
 		case key.Matches(msg, m.keys.Down):
-			if m.cursor < len(visible)-1 {
+			if m.cursor < len(m.visibleIdx)-1 {
 				m.cursor++
 			}
-			return m, nil
 		case key.Matches(msg, m.keys.Top):
 			m.cursor = 0
-			return m, nil
 		case key.Matches(msg, m.keys.Bottom):
-			m.cursor = max(0, len(visible)-1)
-			return m, nil
+			m.cursor = max(0, len(m.visibleIdx)-1)
 		case key.Matches(msg, m.keys.Refresh):
 			return m, reload(m.mgr)
 		case key.Matches(msg, m.keys.Enter):
@@ -172,61 +149,55 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				m.detailTab = tabOverview
 				m.refreshDetailContent()
 			}
-			return m, nil
 		case key.Matches(msg, m.keys.Delete):
 			if j, ok := m.currentJob(); ok {
 				m.pendingDelete = j
 				m.view = viewConfirmDelete
 			}
-			return m, nil
 		}
 	}
 	return m, nil
 }
 
-// currentJob returns the job at the cursor (after filtering), or false when
-// the list is empty.
+// activeVP returns the viewport backing the current detail tab. Returning a
+// pointer lets callers do `*vp, cmd = vp.Update(msg)` in one place instead of
+// repeating the three-way switch.
+func (m *Model) activeVP() *viewport.Model {
+	switch m.detailTab {
+	case tabRaw:
+		return &m.rawVP
+	case tabLogs:
+		return &m.logsVP
+	default:
+		return &m.detailVP
+	}
+}
+
 func (m Model) currentJob() (origin.Job, bool) {
-	visible := m.filteredIndexes()
-	if len(visible) == 0 || m.cursor >= len(visible) {
+	if len(m.visibleIdx) == 0 || m.cursor >= len(m.visibleIdx) {
 		return origin.Job{}, false
 	}
-	return m.jobs[visible[m.cursor]], true
+	return m.jobs[m.visibleIdx[m.cursor]], true
 }
 
-// filteredIndexes returns the indexes into m.jobs that match the current
-// filter. The empty filter returns every index.
-func (m Model) filteredIndexes() []int {
-	if !m.filterOn && m.filter.Value() == "" {
-		idx := make([]int, len(m.jobs))
-		for i := range m.jobs {
-			idx[i] = i
-		}
-		return idx
-	}
+// recomputeFilter rebuilds visibleIdx from the current filter text. Cheap
+// enough to run on every keystroke during typing.
+func (m *Model) recomputeFilter() {
 	q := strings.ToLower(strings.TrimSpace(m.filter.Value()))
-	if q == "" {
-		idx := make([]int, len(m.jobs))
-		for i := range m.jobs {
-			idx[i] = i
-		}
-		return idx
+	m.visibleIdx = m.visibleIdx[:0]
+	if cap(m.visibleIdx) < len(m.jobs) {
+		m.visibleIdx = make([]int, 0, len(m.jobs))
 	}
-	var out []int
 	for i, j := range m.jobs {
-		if strings.Contains(strings.ToLower(j.ID), q) ||
-			strings.Contains(strings.ToLower(j.Name), q) ||
-			strings.Contains(strings.ToLower(j.Command), q) ||
-			strings.Contains(strings.ToLower(j.Schedule), q) {
-			out = append(out, i)
+		if q == "" || jobMatches(&j, q) {
+			m.visibleIdx = append(m.visibleIdx, i)
 		}
 	}
-	return out
 }
 
-func max(a, b int) int {
-	if a > b {
-		return a
-	}
-	return b
+func jobMatches(j *origin.Job, lowerQuery string) bool {
+	return strings.Contains(strings.ToLower(j.ID), lowerQuery) ||
+		strings.Contains(strings.ToLower(j.Name), lowerQuery) ||
+		strings.Contains(strings.ToLower(j.Command), lowerQuery) ||
+		strings.Contains(strings.ToLower(j.Schedule), lowerQuery)
 }

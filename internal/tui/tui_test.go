@@ -5,14 +5,11 @@ import (
 	"strings"
 	"testing"
 
-	tea "github.com/charmbracelet/bubbletea"
+	tea "charm.land/bubbletea/v2"
 
 	"github.com/rednafi/eon/internal/origin"
 )
 
-// stubOrigin is a no-op Origin used to instantiate a Manager for the TUI.
-// We deliberately don't run the bubbletea program loop — the unit tests below
-// exercise the pure Update/View logic with synthetic messages.
 type stubOrigin struct {
 	jobs    []origin.Job
 	deleted []string
@@ -33,11 +30,29 @@ func (s *stubOrigin) Delete(_ context.Context, id string) error {
 	return origin.ErrNotFound
 }
 
+// keyPress builds a v2 KeyPressMsg from a string spelling. We use the
+// ergonomic .String() form that bubbletea itself recommends; callers pass
+// "/", "enter", "down", "y", etc.
+func keyPress(s string) tea.KeyPressMsg {
+	switch s {
+	case "enter":
+		return tea.KeyPressMsg{Code: tea.KeyEnter}
+	case "esc":
+		return tea.KeyPressMsg{Code: tea.KeyEsc}
+	case "up":
+		return tea.KeyPressMsg{Code: tea.KeyUp}
+	case "down":
+		return tea.KeyPressMsg{Code: tea.KeyDown}
+	default:
+		r := []rune(s)[0]
+		return tea.KeyPressMsg{Code: r, Text: s}
+	}
+}
+
 func newTestModel(jobs ...origin.Job) (Model, *stubOrigin) {
 	s := &stubOrigin{jobs: jobs}
 	mgr := origin.NewManager(s)
 	m := New(mgr)
-	// Apply a known size so View() can compute layout.
 	mm, _ := m.Update(tea.WindowSizeMsg{Width: 120, Height: 30})
 	return mm.(Model), s
 }
@@ -45,7 +60,7 @@ func newTestModel(jobs ...origin.Job) (Model, *stubOrigin) {
 func TestModelInitialViewShowsLoading(t *testing.T) {
 	mgr := origin.NewManager(&stubOrigin{})
 	m := New(mgr)
-	if got := m.View(); got != "loading…" {
+	if got := m.render(); got != "loading…" {
 		t.Errorf("want loading…, got %q", got)
 	}
 }
@@ -56,7 +71,7 @@ func TestModelRendersJobsAfterLoad(t *testing.T) {
 		origin.Job{ID: "stub:b", Kind: origin.KindLaunchd, Name: "beta", Schedule: "every 5m", Status: "loaded"},
 	)
 	mm, _ := m.Update(jobsLoadedMsg{jobs: m.mgr.Origins()[0].(*stubOrigin).jobs})
-	v := mm.(Model).View()
+	v := mm.(Model).render()
 	for _, want := range []string{"alpha", "beta", "@daily", "every 5m"} {
 		if !strings.Contains(v, want) {
 			t.Errorf("view missing %q\n%s", want, v)
@@ -70,7 +85,7 @@ func TestModelDownArrowMovesCursor(t *testing.T) {
 		origin.Job{ID: "stub:b", Name: "beta"},
 	)
 	mm, _ := m.Update(jobsLoadedMsg{jobs: m.mgr.Origins()[0].(*stubOrigin).jobs})
-	mm, _ = mm.Update(tea.KeyMsg{Type: tea.KeyDown})
+	mm, _ = mm.Update(keyPress("down"))
 	if got := mm.(Model).cursor; got != 1 {
 		t.Errorf("cursor want 1, got %d", got)
 	}
@@ -83,13 +98,12 @@ func TestModelFilterNarrowsList(t *testing.T) {
 		origin.Job{ID: "stub:gamma", Name: "gamma"},
 	)
 	mm, _ := m.Update(jobsLoadedMsg{jobs: m.mgr.Origins()[0].(*stubOrigin).jobs})
-	// Press '/' to enter filter mode, then type "be".
-	mm, _ = mm.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("/")})
-	mm, _ = mm.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("b")})
-	mm, _ = mm.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("e")})
-	mm, _ = mm.Update(tea.KeyMsg{Type: tea.KeyEnter}) // commit filter
+	mm, _ = mm.Update(keyPress("/"))
+	mm, _ = mm.Update(keyPress("b"))
+	mm, _ = mm.Update(keyPress("e"))
+	mm, _ = mm.Update(keyPress("enter"))
 
-	visible := mm.(Model).filteredIndexes()
+	visible := mm.(Model).visibleIdx
 	if len(visible) != 1 {
 		t.Fatalf("want 1 visible job, got %d", len(visible))
 	}
@@ -103,11 +117,11 @@ func TestModelEnterDrillsIntoDetail(t *testing.T) {
 		origin.Job{ID: "stub:a", Name: "alpha", Schedule: "@daily", Command: "/bin/echo hi"},
 	)
 	mm, _ := m.Update(jobsLoadedMsg{jobs: m.mgr.Origins()[0].(*stubOrigin).jobs})
-	mm, _ = mm.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	mm, _ = mm.Update(keyPress("enter"))
 	if mm.(Model).view != viewDetail {
 		t.Fatalf("want detail view, got %v", mm.(Model).view)
 	}
-	if !strings.Contains(mm.View(), "alpha") {
+	if !strings.Contains(mm.(Model).render(), "alpha") {
 		t.Errorf("detail view missing job name")
 	}
 }
@@ -115,15 +129,14 @@ func TestModelEnterDrillsIntoDetail(t *testing.T) {
 func TestModelDeleteFlow(t *testing.T) {
 	m, stub := newTestModel(origin.Job{ID: "stub:goner", Name: "goner"})
 	mm, _ := m.Update(jobsLoadedMsg{jobs: stub.jobs})
-	mm, _ = mm.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("d")})
+	mm, _ = mm.Update(keyPress("d"))
 	if mm.(Model).view != viewConfirmDelete {
 		t.Fatalf("want confirm view, got %v", mm.(Model).view)
 	}
-	mm, cmd := mm.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("y")})
+	mm, cmd := mm.Update(keyPress("y"))
 	if cmd == nil {
 		t.Fatal("expected delete command")
 	}
-	// Run the cmd synchronously to actually invoke Manager.Delete.
 	msg := cmd()
 	_, _ = mm.Update(msg)
 	if len(stub.deleted) != 1 || stub.deleted[0] != "stub:goner" {
@@ -148,10 +161,6 @@ func TestTruncateMiddleKeepsBothEnds(t *testing.T) {
 	}
 }
 
-// TestModelHundredJobsScrolls confirms the list view can render a long job
-// set without panicking. We don't assert on cursor visibility (that depends
-// on terminal size); we just assert the model survives 100 down-arrows and
-// 100 up-arrows.
 func TestModelHundredJobsScrolls(t *testing.T) {
 	jobs := make([]origin.Job, 100)
 	for i := range jobs {
@@ -160,10 +169,10 @@ func TestModelHundredJobsScrolls(t *testing.T) {
 	m, _ := newTestModel(jobs...)
 	mm, _ := m.Update(jobsLoadedMsg{jobs: jobs})
 	for i := 0; i < 200; i++ {
-		mm, _ = mm.Update(tea.KeyMsg{Type: tea.KeyDown})
+		mm, _ = mm.Update(keyPress("down"))
 	}
 	for i := 0; i < 200; i++ {
-		mm, _ = mm.Update(tea.KeyMsg{Type: tea.KeyUp})
+		mm, _ = mm.Update(keyPress("up"))
 	}
 	if mm.(Model).cursor != 0 {
 		t.Errorf("cursor should land at 0, got %d", mm.(Model).cursor)
