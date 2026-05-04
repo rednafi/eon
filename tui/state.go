@@ -8,14 +8,9 @@ import (
 	"github.com/rednafi/eon/cron"
 )
 
-// state.go owns Model mutators and read-only accessors. The Update function
-// (in update.go) only routes messages; everything that touches m.cursor,
-// m.visibleIdx, m.colWidths, m.view, etc. lives here so the state machine
-// is in one place.
-
-// startDelete inspects the cursored job and routes to the right modal:
-// confirm for user-scope, read-only notice for system-scope. Without this
-// gate, the source's read-only Delete would error silently into the flash.
+// startDelete routes to the read-only modal for system-scope jobs. Without
+// this gate, the source's Delete would error and the flash would silently
+// swallow it.
 func (m *Model) startDelete() {
 	j, ok := m.currentJob()
 	if !ok {
@@ -71,7 +66,17 @@ func (m *Model) recomputeFilter() {
 
 func (m *Model) recomputeColWidths() {
 	_, _, contentWidth := m.bodyDims()
-	m.colWidths = computeColumnWidths(tableCols, m.jobs, contentWidth)
+	m.colWidths = computeColumnWidths(tableCols, jobsToCells(m.jobs), contentWidth)
+}
+
+// jobsToCells projects []cron.Job into the layout-package shape so the
+// layout file stays free of cron domain types.
+func jobsToCells(jobs []cron.Job) [][6]string {
+	out := make([][6]string, len(jobs))
+	for i, j := range jobs {
+		out[i] = [6]string{j.ID, string(j.Scope), string(j.Kind), j.Name, j.Schedule, j.Status}
+	}
+	return out
 }
 
 func jobMatches(j *cron.Job, lowerQuery string) bool {

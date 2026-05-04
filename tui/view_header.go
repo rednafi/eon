@@ -74,14 +74,19 @@ func (m Model) bodyDims() (width, height, contentWidth int) {
 	return
 }
 
-// modal wraps a body string in the standard modal chrome: header strip,
-// bordered main panel sized to the body area, status bar at the bottom.
-// Every modal view (confirm, read-only, future) goes through this so the
-// chrome can't drift between them.
+// frame stitches header + already-rendered body panel + status bar into the
+// final string every view returns. Every view's last line goes through this
+// so the chrome can't drift between list / detail / confirm / read-only.
+func (m Model) frame(context, panel string) string {
+	return lipgloss.JoinVertical(lipgloss.Left, m.renderHeader(context), panel, m.renderStatusBar())
+}
+
+// modal is the shorthand for views that just have a free-form body inside
+// the standard MainPanel — confirm and read-only. Views that build their
+// own panel (list, detail) call frame directly.
 func (m Model) modal(context, body string) string {
 	pw, ph, _ := m.bodyDims()
-	panel := m.theme.MainPanel.Width(pw).Height(ph).Render(body)
-	return lipgloss.JoinVertical(lipgloss.Left, m.renderHeader(context), panel, m.renderStatusBar())
+	return m.frame(context, m.theme.MainPanel.Width(pw).Height(ph).Render(body))
 }
 
 func (m Model) renderStatusBar() string {

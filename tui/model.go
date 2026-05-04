@@ -76,8 +76,8 @@ type Model struct {
 	lastDetailID string
 
 	selectedJob cron.Job
-	flash         string
-	flashUntil    time.Time
+	flash       string
+	flashUntil  time.Time
 }
 
 func New(mgr *cron.Manager) Model {

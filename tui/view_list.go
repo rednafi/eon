@@ -7,18 +7,14 @@ import (
 )
 
 func (m Model) viewList() string {
-	return lipgloss.JoinVertical(lipgloss.Left,
-		m.renderHeader("Crons"),
-		m.renderListPanel(),
-		m.renderStatusBar(),
-	)
+	return m.frame("Crons", m.renderListPanel())
 }
 
 func (m Model) renderListPanel() string {
 	panelWidth, panelHeight, contentWidth := m.bodyDims()
 	widths := m.colWidths
 	if widths == nil {
-		widths = computeColumnWidths(tableCols, m.jobs, contentWidth)
+		widths = computeColumnWidths(tableCols, jobsToCells(m.jobs), contentWidth)
 	}
 	headerStyle := m.theme.HeaderCell
 	headerLine := renderRow(tableCols, widths, &headerStyle, nil)
@@ -36,13 +32,16 @@ func (m Model) renderListPanel() string {
 
 	start, end := windowedRange(m.cursor, listRows, len(m.visibleIdx))
 	rows := make([]string, 0, listRows)
+	// Per-row arrays sit on the stack (Go inlines fixed-size [6]T into the
+	// caller's frame) so the inner loop allocates nothing beyond what
+	// renderRow itself needs.
 	for i := start; i < end; i++ {
 		j := m.jobs[m.visibleIdx[i]]
-		cells := []string{j.ID, string(j.Scope), string(j.Kind), j.Name, j.Schedule, j.Status}
+		cells := [6]string{j.ID, string(j.Scope), string(j.Kind), j.Name, j.Schedule, j.Status}
 		statusStyle := m.theme.statusStyle(j.Status)
 		scopeStyle := m.theme.scopeStyle(j.Scope)
-		overrides := []*lipgloss.Style{nil, &scopeStyle, nil, nil, nil, &statusStyle}
-		line := renderRow(cells, widths, nil, overrides)
+		overrides := [6]*lipgloss.Style{nil, &scopeStyle, nil, nil, nil, &statusStyle}
+		line := renderRow(cells[:], widths, nil, overrides[:])
 		if i == m.cursor {
 			line = m.theme.Selected.Width(contentWidth).Render(line)
 		}

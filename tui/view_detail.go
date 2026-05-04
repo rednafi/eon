@@ -8,7 +8,6 @@ import (
 	"time"
 
 	"charm.land/bubbles/v2/viewport"
-	"charm.land/lipgloss/v2"
 
 	"github.com/rednafi/eon/cron"
 )
@@ -18,11 +17,7 @@ func (m Model) viewDetail() string {
 	if !ok {
 		return m.viewList()
 	}
-	return lipgloss.JoinVertical(lipgloss.Left,
-		m.renderHeader("Detail · "+j.Name),
-		m.renderDetailPanel(),
-		m.renderStatusBar(),
-	)
+	return m.frame("Detail · "+j.Name, m.renderDetailPanel())
 }
 
 func (m Model) renderDetailPanel() string {
