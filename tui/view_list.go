@@ -13,9 +13,6 @@ func (m Model) viewList() string {
 func (m Model) renderListPanel() string {
 	panelWidth, panelHeight, contentWidth := m.bodyDims()
 	widths := m.colWidths
-	if widths == nil {
-		widths = computeColumnWidths(tableCols, jobsToCells(m.jobs), contentWidth)
-	}
 	headerStyle := m.theme.HeaderCell
 	headerLine := renderRow(tableCols, widths, &headerStyle, nil)
 	rule := m.theme.Subtle.Render(strings.Repeat("─", contentWidth))
@@ -37,7 +34,10 @@ func (m Model) renderListPanel() string {
 	// renderRow itself needs.
 	for i := start; i < end; i++ {
 		j := m.jobs[m.visibleIdx[i]]
-		cells := [6]string{j.ID, string(j.Scope), string(j.Kind), j.Name, j.Schedule, j.Status}
+		var cells [6]string
+		for k := range cells {
+			cells[k] = jobCell(j, k)
+		}
 		statusStyle := m.theme.statusStyle(j.Status)
 		scopeStyle := m.theme.scopeStyle(j.Scope)
 		overrides := [6]*lipgloss.Style{nil, &scopeStyle, nil, nil, nil, &statusStyle}

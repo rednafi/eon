@@ -14,5 +14,5 @@ func (m Model) viewConfirm() string {
 		m.theme.HelpKey.Render("y")+" "+m.theme.Help.Render("confirm")+"   "+
 			m.theme.HelpKey.Render("n/esc")+" "+m.theme.Help.Render("cancel"),
 	)
-	return m.modal("Confirm", body)
+	return m.panel("Confirm", body)
 }

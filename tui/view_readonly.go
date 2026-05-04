@@ -15,5 +15,5 @@ func (m Model) viewReadOnlyPanel() string {
 		"",
 		m.theme.HelpKey.Render("any key")+" "+m.theme.Help.Render("dismiss"),
 	)
-	return m.modal("Read-only", body)
+	return m.panel("Read-only", body)
 }

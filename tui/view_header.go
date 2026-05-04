@@ -81,10 +81,10 @@ func (m Model) frame(context, panel string) string {
 	return lipgloss.JoinVertical(lipgloss.Left, m.renderHeader(context), panel, m.renderStatusBar())
 }
 
-// modal is the shorthand for views that just have a free-form body inside
-// the standard MainPanel — confirm and read-only. Views that build their
-// own panel (list, detail) call frame directly.
-func (m Model) modal(context, body string) string {
+// panel is the shorthand for views with a free-form body inside the
+// standard MainPanel chrome (confirm, read-only). Views that build their
+// own custom panel (list, detail) call frame directly.
+func (m Model) panel(context, body string) string {
 	pw, ph, _ := m.bodyDims()
 	return m.frame(context, m.theme.MainPanel.Width(pw).Height(ph).Render(body))
 }

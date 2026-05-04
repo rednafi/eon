@@ -4,6 +4,8 @@ import (
 	"strings"
 
 	"charm.land/lipgloss/v2"
+
+	"github.com/rednafi/eon/cron"
 )
 
 const (
@@ -15,29 +17,48 @@ const (
 	panelChromeY = 2
 )
 
-// tableCols is the canonical column order. renderListPanel and the cell
-// projection in state.go both index into this — a drift between the two
-// would panic on the first cell.
+// tableCols is the canonical column order. renderListPanel and
+// computeColumnWidths both rely on this order — a drift would panic on the
+// first cell.
 var tableCols = []string{"ID", "SCOPE", "KIND", "NAME", "SCHEDULE", "STATUS"}
+
+// jobCell pulls a single column out of a Job. Centralising the projection
+// keeps tableCols and every renderer in lockstep — change it here and both
+// width-measuring and row-rendering pick it up.
+func jobCell(j cron.Job, col int) string {
+	switch col {
+	case 0:
+		return j.ID
+	case 1:
+		return string(j.Scope)
+	case 2:
+		return string(j.Kind)
+	case 3:
+		return j.Name
+	case 4:
+		return j.Schedule
+	case 5:
+		return j.Status
+	}
+	return ""
+}
 
 // computeColumnWidths sizes each column to its widest cell, then squeezes
 // ID → NAME → KIND if the row exceeds the available width. SCOPE/SCHEDULE/
-// STATUS are short and most informative so they keep their natural width.
-// The caller projects jobs into [6]string rows so this stays a pure layout
-// helper with no cron dependency.
-func computeColumnWidths(headers []string, rows [][6]string, available int) []int {
-	widths := make([]int, len(headers))
-	for i, h := range headers {
+// STATUS keep their natural width — they're short and most informative.
+func computeColumnWidths(jobs []cron.Job, available int) []int {
+	widths := make([]int, len(tableCols))
+	for i, h := range tableCols {
 		widths[i] = len(h)
 	}
-	for _, row := range rows {
-		for i, c := range row {
-			if len(c) > widths[i] {
-				widths[i] = len(c)
+	for _, j := range jobs {
+		for i := range tableCols {
+			if w := len(jobCell(j, i)); w > widths[i] {
+				widths[i] = w
 			}
 		}
 	}
-	gutter := 2 * (len(headers) - 1)
+	gutter := 2 * (len(tableCols) - 1)
 	used := gutter
 	for _, w := range widths {
 		used += w
@@ -61,15 +82,15 @@ func computeColumnWidths(headers []string, rows [][6]string, available int) []in
 // overrides take precedence over base; nil entries fall back to base. Padding
 // is measured against rendered cell width so ANSI codes don't shift columns.
 func renderRow(cells []string, widths []int, base *lipgloss.Style, overrides []*lipgloss.Style) string {
-	// Pre-size the builder: sum(widths) + 2-cell gutters + slack for ANSI
-	// escape sequences. Without Grow the builder doubles 2-3 times per
-	// row; for a TUI redrawing on every keystroke this matters.
+	// Pre-size the builder: sum(widths) + 2-cell gutters + ~16 bytes per
+	// cell of ANSI escape slack (a styled cell carries roughly that for
+	// fg+bg+reset). Without Grow the builder doubles 2-3 times per row.
 	total := 2 * (len(cells) - 1)
 	for _, w := range widths {
 		total += w
 	}
 	var b strings.Builder
-	b.Grow(total + 32)
+	b.Grow(total + 16*len(cells))
 	for i, c := range cells {
 		text := truncateMiddle(c, widths[i])
 		var s *lipgloss.Style

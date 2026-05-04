@@ -66,17 +66,7 @@ func (m *Model) recomputeFilter() {
 
 func (m *Model) recomputeColWidths() {
 	_, _, contentWidth := m.bodyDims()
-	m.colWidths = computeColumnWidths(tableCols, jobsToCells(m.jobs), contentWidth)
-}
-
-// jobsToCells projects []cron.Job into the layout-package shape so the
-// layout file stays free of cron domain types.
-func jobsToCells(jobs []cron.Job) [][6]string {
-	out := make([][6]string, len(jobs))
-	for i, j := range jobs {
-		out[i] = [6]string{j.ID, string(j.Scope), string(j.Kind), j.Name, j.Schedule, j.Status}
-	}
-	return out
+	m.colWidths = computeColumnWidths(m.jobs, contentWidth)
 }
 
 func jobMatches(j *cron.Job, lowerQuery string) bool {
