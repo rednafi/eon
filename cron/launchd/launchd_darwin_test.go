@@ -166,6 +166,355 @@ func TestLaunchdMissingDir(t *testing.T) {
 	}
 }
 
+// formatInterval boundaries: day/hour/minute thresholds are picked off
+// modular zero, so a value like 90s should land in seconds (not minutes),
+// and 86400s should round to days.
+func TestFormatInterval(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		in   int
+		want string
+	}{
+		{45, "every 45s"},
+		{60, "every 1m"},
+		{90, "every 90s"}, // not a clean minute, falls through to seconds
+		{300, "every 5m"},
+		{3600, "every 1h"},
+		{7200, "every 2h"},
+		{86400, "every 1d"},
+		{172800, "every 2d"},
+	}
+	for _, tc := range cases {
+		if got := formatInterval(tc.in); got != tc.want {
+			t.Errorf("formatInterval(%d) = %q, want %q", tc.in, got, tc.want)
+		}
+	}
+}
+
+func TestFormatLaunchdScheduleAllBranches(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		name string
+		doc  plistDoc
+		want string
+	}{
+		{"interval beats everything", plistDoc{StartInterval: 60, RunAtLoad: true}, "every 1m"},
+		{"single-dict calendar", plistDoc{StartCalendarInterval: map[string]any{"Hour": 9, "Minute": 0}}, "0 9 * * *"},
+		{"single-element array", plistDoc{StartCalendarInterval: []any{map[string]any{"Hour": 17, "Minute": 30}}}, "30 17 * * *"},
+		{"multi-element array", plistDoc{StartCalendarInterval: []any{map[string]any{"Hour": 9}, map[string]any{"Hour": 17}}}, "2 triggers"},
+		{"empty calendar map", plistDoc{StartCalendarInterval: map[string]any{}, RunAtLoad: true}, "at load"},
+		{"empty calendar array", plistDoc{StartCalendarInterval: []any{}, RunAtLoad: true}, "at load"},
+		{"only RunAtLoad", plistDoc{RunAtLoad: true}, "at load"},
+		{"no schedule keys", plistDoc{}, "on-demand"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			if got := formatLaunchdSchedule(tc.doc); got != tc.want {
+				t.Errorf("formatLaunchdSchedule(%+v) = %q, want %q", tc.doc, got, tc.want)
+			}
+		})
+	}
+}
+
+// formatCalendar renders cron fields with "*" for unset slots. Each key is
+// also accepted as different numeric types depending on plist provenance —
+// int, int64, uint64, float64. Dropping any of them silently turns a daily
+// 9am job into a pseudo "* * * * *" schedule, which users will read as
+// "every minute". Verify each numeric type round-trips.
+func TestFormatCalendarAcceptsNumericVariants(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		name string
+		in   map[string]any
+		want string
+	}{
+		{"int", map[string]any{"Hour": 9, "Minute": 30}, "30 9 * * *"},
+		{"int64", map[string]any{"Hour": int64(9), "Minute": int64(30)}, "30 9 * * *"},
+		{"uint64", map[string]any{"Hour": uint64(9), "Minute": uint64(30)}, "30 9 * * *"},
+		{"float64", map[string]any{"Hour": float64(9), "Minute": float64(30)}, "30 9 * * *"},
+		{"weekday only", map[string]any{"Weekday": 1}, "* * * * 1"},
+		{"all five", map[string]any{"Minute": 0, "Hour": 9, "Day": 15, "Month": 6, "Weekday": 1}, "0 9 15 6 1"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			if got := formatCalendar(tc.in); got != tc.want {
+				t.Errorf("formatCalendar(%v) = %q, want %q", tc.in, got, tc.want)
+			}
+		})
+	}
+}
+
+// A plist without a <Label> should still parse — we fall back to the
+// basename so the user sees *something* in the list. Without this, a missing
+// Label silently turned into ID="launchd-test:" and a blank Name column.
+func TestLaunchdLabelFallsBackToBasename(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	body := `<?xml version="1.0" encoding="UTF-8"?>
+<plist version="1.0"><dict>
+<key>ProgramArguments</key><array><string>/bin/echo</string></array>
+</dict></plist>`
+	if err := os.WriteFile(filepath.Join(dir, "fallback.plist"), []byte(body), 0o600); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	src := &Launchd{Dir: dir, Tag: "test"}
+	jobs, err := src.List(t.Context())
+	if err != nil {
+		t.Fatalf("list: %v", err)
+	}
+	if len(jobs) != 1 {
+		t.Fatalf("want 1 job, got %d", len(jobs))
+	}
+	if jobs[0].Name != "fallback" {
+		t.Errorf("label fallback = %q, want %q", jobs[0].Name, "fallback")
+	}
+	if jobs[0].ID != "launchd-test:fallback" {
+		t.Errorf("ID = %q, want launchd-test:fallback", jobs[0].ID)
+	}
+}
+
+// Disabled=true must surface as Status="disabled" so users see why a job
+// they expect isn't running. Naive code that hardcodes "loaded" hides that.
+func TestLaunchdDisabledStatus(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	body := `<?xml version="1.0" encoding="UTF-8"?>
+<plist version="1.0"><dict>
+<key>Label</key><string>com.example.off</string>
+<key>ProgramArguments</key><array><string>/bin/echo</string></array>
+<key>Disabled</key><true/>
+</dict></plist>`
+	if err := os.WriteFile(filepath.Join(dir, "off.plist"), []byte(body), 0o600); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	src := &Launchd{Dir: dir, Tag: "test"}
+	jobs, _ := src.List(t.Context())
+	if len(jobs) != 1 || jobs[0].Status != "disabled" {
+		t.Fatalf("want one disabled job, got %+v", jobs)
+	}
+}
+
+// A corrupt or truncated plist should be silently skipped — surfacing it as
+// an error would break listing for everyone the moment a single bad file
+// lands in ~/Library/LaunchAgents (which happens with crashed installers).
+func TestLaunchdCorruptPlistIsSkipped(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "good.plist"), []byte(minimalPlist("good", 60)), 0o600); err != nil {
+		t.Fatalf("write good: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "corrupt.plist"), []byte("not even xml"), 0o600); err != nil {
+		t.Fatalf("write corrupt: %v", err)
+	}
+	src := &Launchd{Dir: dir, Tag: "test"}
+	jobs, err := src.List(t.Context())
+	if err != nil {
+		t.Fatalf("list: %v", err)
+	}
+	if len(jobs) != 1 || jobs[0].Name != "good" {
+		t.Errorf("corrupt plist should be skipped, kept good; got %+v", jobs)
+	}
+}
+
+// `launchctl list` returns "-" in the PID column for jobs that aren't
+// currently running. Atoi("-") errors and we should treat that as PID 0.
+// A regression here would crash the source on every launchctl call.
+func TestLaunchdEnrichHandlesDashPID(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "com.example.idle.plist"), []byte(minimalPlist("com.example.idle", 60)), 0o600); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	src := &Launchd{
+		Dir: dir,
+		Tag: "test",
+		Runner: func(_ context.Context, _ []string) ([]byte, error) {
+			return []byte("PID\tStatus\tLabel\n-\t78\tcom.example.idle\n"), nil
+		},
+	}
+	jobs, err := src.List(t.Context())
+	if err != nil {
+		t.Fatalf("list: %v", err)
+	}
+	if len(jobs) != 1 {
+		t.Fatalf("want 1 job, got %d", len(jobs))
+	}
+	if jobs[0].PID != 0 {
+		t.Errorf("dash PID should yield 0, got %d", jobs[0].PID)
+	}
+	if jobs[0].LastExitCode != 78 {
+		t.Errorf("exit code = %d, want 78", jobs[0].LastExitCode)
+	}
+	if jobs[0].Status != "exited 78" {
+		t.Errorf("status = %q, want %q", jobs[0].Status, "exited 78")
+	}
+}
+
+// A failing launchctl runner is expected (sandboxed CI, weirdly broken
+// install, etc). We must keep the static plist data and just skip enrichment.
+func TestLaunchdEnrichRunnerErrorIsTolerated(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "com.example.solo.plist"), []byte(minimalPlist("com.example.solo", 60)), 0o600); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	src := &Launchd{
+		Dir: dir,
+		Tag: "test",
+		Runner: func(_ context.Context, _ []string) ([]byte, error) {
+			return nil, fmt.Errorf("launchctl: permission denied")
+		},
+	}
+	jobs, err := src.List(t.Context())
+	if err != nil {
+		t.Fatalf("list: %v", err)
+	}
+	if len(jobs) != 1 {
+		t.Fatalf("static plists should still surface; got %d jobs", len(jobs))
+	}
+	// Status comes from the plist alone (no Disabled key) — should be "loaded".
+	if jobs[0].Status != "loaded" {
+		t.Errorf("status = %q, want %q", jobs[0].Status, "loaded")
+	}
+}
+
+// Malformed enrich rows (fewer than 3 fields) should not panic. The current
+// code has `len(fields) < 3` skip, but a regression here would silently
+// crash the entire List call.
+func TestLaunchdEnrichHandlesMalformedRow(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "com.example.short.plist"), []byte(minimalPlist("com.example.short", 60)), 0o600); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	src := &Launchd{
+		Dir: dir,
+		Tag: "test",
+		Runner: func(_ context.Context, _ []string) ([]byte, error) {
+			// Header, an under-3-field row, and a real row.
+			return []byte("PID\tStatus\tLabel\nbroken row\n1\t0\tcom.example.short\n"), nil
+		},
+	}
+	jobs, err := src.List(t.Context())
+	if err != nil {
+		t.Fatalf("list: %v", err)
+	}
+	if len(jobs) != 1 {
+		t.Fatalf("malformed row crashed list, got %d jobs", len(jobs))
+	}
+	if jobs[0].PID != 1 {
+		t.Errorf("real row should have enriched, got PID %d", jobs[0].PID)
+	}
+}
+
+// `launchctl unload` returns non-zero with "Could not find specified service"
+// when the agent isn't loaded. The default runner swallows that; verify the
+// Delete path works even when the runner returns that exact message.
+func TestLaunchdDeleteIgnoresUnloadFailure(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	plistPath := filepath.Join(dir, "com.example.zombie.plist")
+	if err := os.WriteFile(plistPath, []byte(minimalPlist("com.example.zombie", 60)), 0o600); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	calls := [][]string{}
+	src := &Launchd{
+		Dir: dir,
+		Tag: "test",
+		Runner: func(_ context.Context, args []string) ([]byte, error) {
+			calls = append(calls, args)
+			return []byte("Could not find specified service"), fmt.Errorf("exit 113")
+		},
+	}
+	if err := src.Delete(t.Context(), "launchd-test:com.example.zombie"); err != nil {
+		t.Errorf("delete should still succeed when unload fails (best-effort): %v", err)
+	}
+	if _, err := os.Stat(plistPath); !os.IsNotExist(err) {
+		t.Errorf("plist should have been removed, got %v", err)
+	}
+}
+
+// ID without the source's "launchd-<tag>:" prefix should return ErrNotFound
+// rather than mutating anything. The Manager fan-out depends on this so
+// other sources get a chance to claim the ID.
+func TestLaunchdDeleteForeignIDReturnsNotFound(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "com.example.untouchable.plist"), []byte(minimalPlist("com.example.untouchable", 60)), 0o600); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	src := &Launchd{Dir: dir, Tag: "test"}
+	err := src.Delete(t.Context(), "launchd-other:com.example.untouchable")
+	if !errors.Is(err, cron.ErrNotFound) {
+		t.Errorf("foreign-prefix ID should return ErrNotFound, got %v", err)
+	}
+	if _, statErr := os.Stat(filepath.Join(dir, "com.example.untouchable.plist")); statErr != nil {
+		t.Errorf("plist mutated by foreign ID: %v", statErr)
+	}
+}
+
+// NewUser builds a source pointed at ~/Library/LaunchAgents. We don't test
+// the actual home dir, just that the constructor returns a reasonable Tag
+// and a non-nil Runner so List won't no-op on real systems.
+func TestNewUserConstructor(t *testing.T) {
+	t.Parallel()
+	src, err := NewUser()
+	if err != nil {
+		t.Fatalf("NewUser: %v", err)
+	}
+	if src.Tag != "user" {
+		t.Errorf("Tag = %q, want user", src.Tag)
+	}
+	if src.Runner == nil {
+		t.Errorf("NewUser must set Runner so enrich runs on real installs")
+	}
+	if !strings.HasSuffix(src.Dir, "/Library/LaunchAgents") {
+		t.Errorf("NewUser Dir = %q; expected to end with /Library/LaunchAgents", src.Dir)
+	}
+}
+
+func TestNewSystemConstructor(t *testing.T) {
+	t.Parallel()
+	src := NewSystem()
+	if !src.ReadOnly {
+		t.Errorf("system source must be read-only")
+	}
+	if src.Dir != "/Library/LaunchAgents" {
+		t.Errorf("system source Dir = %q", src.Dir)
+	}
+	if src.Scope() != cron.ScopeSystem {
+		t.Errorf("scope = %v, want system", src.Scope())
+	}
+}
+
+// formatCalendar's default branch handles types our schema doesn't pre-list.
+// Pass a string and verify it survives stringification (Sprintf %v) — keeps
+// rendering predictable rather than panicking on a surprise type.
+func TestFormatCalendarUnknownType(t *testing.T) {
+	t.Parallel()
+	got := formatCalendar(map[string]any{"Hour": "morning"})
+	if !strings.Contains(got, "morning") {
+		t.Errorf("expected unknown-type fallthrough to keep raw value; got %q", got)
+	}
+}
+
+func TestLaunchdNameAndScope(t *testing.T) {
+	t.Parallel()
+	user := &Launchd{Tag: "user"}
+	if user.Name() != "launchd-user" {
+		t.Errorf("user.Name() = %q", user.Name())
+	}
+	if user.Scope() != cron.ScopeUser {
+		t.Errorf("user.Scope() = %v, want %v", user.Scope(), cron.ScopeUser)
+	}
+	system := &Launchd{Tag: "system", ReadOnly: true}
+	if system.Scope() != cron.ScopeSystem {
+		t.Errorf("system.Scope() = %v, want %v", system.Scope(), cron.ScopeSystem)
+	}
+}
+
 func TestLaunchdEnrichWithFakeRunner(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
