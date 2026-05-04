@@ -35,6 +35,7 @@ func (s *stubOrigin) Delete(_ context.Context, id string) error {
 }
 
 func TestManagerListAggregatesAndSorts(t *testing.T) {
+	t.Parallel()
 	a := &stubOrigin{name: "a", jobs: []Job{{ID: "z", Kind: KindCrontab, Name: "zeta"}}}
 	b := &stubOrigin{name: "b", jobs: []Job{{ID: "y", Kind: KindCrontab, Name: "alpha"}}}
 	mgr := NewManager(a, b)
@@ -49,6 +50,7 @@ func TestManagerListAggregatesAndSorts(t *testing.T) {
 }
 
 func TestManagerListPropagatesErrors(t *testing.T) {
+	t.Parallel()
 	good := &stubOrigin{name: "good", jobs: []Job{{ID: "good:1"}}}
 	bad := &errOrigin{name: "broken", err: errors.New("boom")}
 	mgr := NewManager(bad, good)
@@ -73,6 +75,7 @@ func (e *errOrigin) List(_ context.Context) ([]Job, error)    { return nil, e.er
 func (e *errOrigin) Delete(_ context.Context, _ string) error { return ErrNotFound }
 
 func TestManagerFindExactThenPrefix(t *testing.T) {
+	t.Parallel()
 	mgr := NewManager(&stubOrigin{
 		name: "x",
 		jobs: []Job{
@@ -101,6 +104,7 @@ func TestManagerFindExactThenPrefix(t *testing.T) {
 }
 
 func TestManagerDeleteRoutesToOwningOrigin(t *testing.T) {
+	t.Parallel()
 	a := &stubOrigin{name: "a", jobs: []Job{{ID: "owned:1"}}}
 	b := &stubOrigin{name: "b", jobs: []Job{{ID: "other:1"}}}
 	mgr := NewManager(a, b)

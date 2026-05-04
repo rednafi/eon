@@ -4,6 +4,7 @@ package launchd
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -43,6 +44,7 @@ func arrayCalendarPlist(label string) string {
 }
 
 func TestLaunchdListFromTempDir(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(dir, "com.example.foo.plist"), []byte(minimalPlist("com.example.foo", 60)), 0o600); err != nil {
 		t.Fatalf("write: %v", err)
@@ -74,6 +76,7 @@ func TestLaunchdListFromTempDir(t *testing.T) {
 }
 
 func TestLaunchdDeleteRemovesPlist(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	path := filepath.Join(dir, "com.example.target.plist")
 	if err := os.WriteFile(path, []byte(minimalPlist("com.example.target", 60)), 0o600); err != nil {
@@ -87,12 +90,13 @@ func TestLaunchdDeleteRemovesPlist(t *testing.T) {
 	if _, err := os.Stat(path); !os.IsNotExist(err) {
 		t.Errorf("plist still exists: %v", err)
 	}
-	if err := src.Delete(t.Context(), "launchd-test:com.example.target"); err != cron.ErrNotFound {
+	if err := src.Delete(t.Context(), "launchd-test:com.example.target"); !errors.Is(err, cron.ErrNotFound) {
 		t.Errorf("second delete should return cron.ErrNotFound, got %v", err)
 	}
 }
 
 func TestLaunchdReadOnlyRejectsDelete(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(dir, "com.example.lock.plist"), []byte(minimalPlist("com.example.lock", 60)), 0o600); err != nil {
 		t.Fatalf("write: %v", err)
@@ -105,6 +109,7 @@ func TestLaunchdReadOnlyRejectsDelete(t *testing.T) {
 }
 
 func TestLaunchdHundredJobs(t *testing.T) {
+	t.Parallel()
 	// The user explicitly asked us to verify 100-job listing and deletion
 	// behavior. We materialize 100 plists in a tmp dir, list them, then
 	// delete every other one and re-list.
@@ -150,6 +155,7 @@ func TestLaunchdHundredJobs(t *testing.T) {
 }
 
 func TestLaunchdMissingDir(t *testing.T) {
+	t.Parallel()
 	src := &Launchd{Dir: "/no/such/path/in/this/test", Tag: "test"}
 	jobs, err := src.List(t.Context())
 	if err != nil {
@@ -161,6 +167,7 @@ func TestLaunchdMissingDir(t *testing.T) {
 }
 
 func TestLaunchdEnrichWithFakeRunner(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(dir, "com.example.enrich.plist"), []byte(minimalPlist("com.example.enrich", 60)), 0o600); err != nil {
 		t.Fatalf("write: %v", err)

@@ -68,6 +68,7 @@ func mustOK(t *testing.T, err error) {
 }
 
 func TestListEmpty(t *testing.T) {
+	t.Parallel()
 	mgr, _ := newFakeManager()
 	var out bytes.Buffer
 	mustOK(t, runCmd(t, mgr, []string{"list"}, nil, &out, &out))
@@ -77,6 +78,7 @@ func TestListEmpty(t *testing.T) {
 }
 
 func TestListJSON(t *testing.T) {
+	t.Parallel()
 	mgr, _ := newFakeManager(cron.Job{ID: "fake:1", Kind: "fake", Name: "first", Schedule: "@daily"})
 	var out bytes.Buffer
 	mustOK(t, runCmd(t, mgr, []string{"list", "--json"}, nil, &out, &out))
@@ -90,6 +92,7 @@ func TestListJSON(t *testing.T) {
 }
 
 func TestListHidesSystemByDefault(t *testing.T) {
+	t.Parallel()
 	mgr, _ := newFakeManager(
 		cron.Job{ID: "fake:user", Name: "user-job"},
 		cron.Job{ID: "fake:sys", Name: "sys-job", Scope: cron.ScopeSystem},
@@ -105,6 +108,7 @@ func TestListHidesSystemByDefault(t *testing.T) {
 }
 
 func TestListAllShowsSystem(t *testing.T) {
+	t.Parallel()
 	mgr, _ := newFakeManager(
 		cron.Job{ID: "fake:user", Name: "user-job"},
 		cron.Job{ID: "fake:sys", Name: "sys-job", Scope: cron.ScopeSystem},
@@ -117,6 +121,7 @@ func TestListAllShowsSystem(t *testing.T) {
 }
 
 func TestShowResolvesByPrefix(t *testing.T) {
+	t.Parallel()
 	mgr, _ := newFakeManager(
 		cron.Job{ID: "fake:com.example.alpha", Name: "alpha"},
 		cron.Job{ID: "fake:com.example.beta", Name: "beta"},
@@ -129,6 +134,7 @@ func TestShowResolvesByPrefix(t *testing.T) {
 }
 
 func TestDeleteWithYesFlag(t *testing.T) {
+	t.Parallel()
 	mgr, fake := newFakeManager(cron.Job{ID: "fake:to-go", Name: "to-go"})
 	var out bytes.Buffer
 	mustOK(t, runCmd(t, mgr, []string{"delete", "to-go", "--yes"}, nil, &out, &out))
@@ -138,6 +144,7 @@ func TestDeleteWithYesFlag(t *testing.T) {
 }
 
 func TestDeletePromptDeniedKeepsJob(t *testing.T) {
+	t.Parallel()
 	mgr, fake := newFakeManager(cron.Job{ID: "fake:keep", Name: "keep"})
 	var out bytes.Buffer
 	stdin := strings.NewReader("n\n")
@@ -151,6 +158,7 @@ func TestDeletePromptDeniedKeepsJob(t *testing.T) {
 }
 
 func TestDeleteSystemRefused(t *testing.T) {
+	t.Parallel()
 	mgr, fake := newFakeManager(cron.Job{ID: "fake:sys", Name: "sys", Scope: cron.ScopeSystem})
 	var out bytes.Buffer
 	err := runCmd(t, mgr, []string{"delete", "sys", "--yes"}, nil, &out, &out)
@@ -163,6 +171,7 @@ func TestDeleteSystemRefused(t *testing.T) {
 }
 
 func TestUnknownCommandIsError(t *testing.T) {
+	t.Parallel()
 	mgr, _ := newFakeManager()
 	var out bytes.Buffer
 	if err := runCmd(t, mgr, []string{"bogus"}, nil, &out, &out); err == nil {
@@ -182,6 +191,7 @@ func TestTruncateRunesHandlesMultibyte(t *testing.T) {
 }
 
 func TestTailReturnsLastNLines(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	f := filepath.Join(dir, "log")
 	var b strings.Builder
@@ -203,4 +213,3 @@ func TestTailReturnsLastNLines(t *testing.T) {
 		t.Fatalf("want 5 lines, got %d: %v", len(got), got)
 	}
 }
-

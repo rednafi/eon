@@ -3,6 +3,7 @@
 package etccron
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -12,6 +13,7 @@ import (
 )
 
 func TestEtcCronParsesSixFieldFormat(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	main := filepath.Join(dir, "crontab")
 	if err := os.WriteFile(main, []byte(`# system crontab
@@ -63,13 +65,15 @@ PATH=/usr/bin:/bin
 }
 
 func TestEtcCronDeleteAlwaysReturnsNotFound(t *testing.T) {
+	t.Parallel()
 	src := New()
-	if err := src.Delete(t.Context(), "crontab-system:anything"); err != cron.ErrNotFound {
+	if err := src.Delete(t.Context(), "crontab-system:anything"); !errors.Is(err, cron.ErrNotFound) {
 		t.Errorf("system crontab must be read-only, got %v", err)
 	}
 }
 
 func TestEtcCronMissingPathsAreSilent(t *testing.T) {
+	t.Parallel()
 	src := &EtcCron{MainPath: "/no/such/file", DropInDir: "/no/such/dir", parser: New().parser}
 	jobs, err := src.List(t.Context())
 	if err != nil {
@@ -81,23 +85,28 @@ func TestEtcCronMissingPathsAreSilent(t *testing.T) {
 }
 
 func TestSplitEtcCrontabLine(t *testing.T) {
+	t.Parallel()
 	cases := []struct {
+		name     string
 		in       string
 		schedule string
 		user     string
 		command  string
 		ok       bool
 	}{
-		{"17 * * * * root run-parts --report /etc/cron.hourly", "17 * * * *", "root", "run-parts --report /etc/cron.hourly", true},
-		{"@daily backup /usr/local/bin/backup.sh", "@daily", "backup", "/usr/local/bin/backup.sh", true},
-		{"too few", "", "", "", false},
-		{"@reboot", "", "", "", false},
+		{"six-field with run-parts", "17 * * * * root run-parts --report /etc/cron.hourly", "17 * * * *", "root", "run-parts --report /etc/cron.hourly", true},
+		{"descriptor", "@daily backup /usr/local/bin/backup.sh", "@daily", "backup", "/usr/local/bin/backup.sh", true},
+		{"too few fields", "too few", "", "", "", false},
+		{"descriptor without command", "@reboot", "", "", "", false},
 	}
 	for _, tc := range cases {
-		s, u, c, ok := splitEtcCrontabLine(tc.in)
-		if ok != tc.ok || s != tc.schedule || u != tc.user || c != tc.command {
-			t.Errorf("split(%q) = (%q,%q,%q,%v), want (%q,%q,%q,%v)",
-				tc.in, s, u, c, ok, tc.schedule, tc.user, tc.command, tc.ok)
-		}
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			s, u, c, ok := splitEtcCrontabLine(tc.in)
+			if ok != tc.ok || s != tc.schedule || u != tc.user || c != tc.command {
+				t.Errorf("split(%q) = (%q,%q,%q,%v), want (%q,%q,%q,%v)",
+					tc.in, s, u, c, ok, tc.schedule, tc.user, tc.command, tc.ok)
+			}
+		})
 	}
 }

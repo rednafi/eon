@@ -61,6 +61,7 @@ func newTestModel(jobs ...cron.Job) (Model, *stubOrigin) {
 }
 
 func TestModelInitialViewShowsLoading(t *testing.T) {
+	t.Parallel()
 	mgr := cron.NewManager(&stubOrigin{})
 	m := New(mgr)
 	if got := m.render(); got != "loading…" {
@@ -69,6 +70,7 @@ func TestModelInitialViewShowsLoading(t *testing.T) {
 }
 
 func TestModelRendersJobsAfterLoad(t *testing.T) {
+	t.Parallel()
 	m, _ := newTestModel(
 		cron.Job{ID: "stub:a", Kind: cron.KindCrontab, Name: "alpha", Schedule: "@daily", Status: "scheduled"},
 		cron.Job{ID: "stub:b", Kind: cron.KindLaunchd, Name: "beta", Schedule: "every 5m", Status: "loaded"},
@@ -83,6 +85,7 @@ func TestModelRendersJobsAfterLoad(t *testing.T) {
 }
 
 func TestModelDownArrowMovesCursor(t *testing.T) {
+	t.Parallel()
 	m, _ := newTestModel(
 		cron.Job{ID: "stub:a", Name: "alpha"},
 		cron.Job{ID: "stub:b", Name: "beta"},
@@ -95,6 +98,7 @@ func TestModelDownArrowMovesCursor(t *testing.T) {
 }
 
 func TestModelFilterNarrowsList(t *testing.T) {
+	t.Parallel()
 	m, _ := newTestModel(
 		cron.Job{ID: "stub:alpha", Name: "alpha"},
 		cron.Job{ID: "stub:beta", Name: "beta"},
@@ -116,6 +120,7 @@ func TestModelFilterNarrowsList(t *testing.T) {
 }
 
 func TestModelEnterDrillsIntoDetail(t *testing.T) {
+	t.Parallel()
 	m, _ := newTestModel(
 		cron.Job{ID: "stub:a", Name: "alpha", Schedule: "@daily", Command: "/bin/echo hi"},
 	)
@@ -130,6 +135,7 @@ func TestModelEnterDrillsIntoDetail(t *testing.T) {
 }
 
 func TestModelDeleteFlow(t *testing.T) {
+	t.Parallel()
 	m, stub := newTestModel(cron.Job{ID: "stub:goner", Name: "goner"})
 	mm, _ := m.Update(jobsLoadedMsg{jobs: stub.jobs})
 	mm, _ = mm.Update(keyPress("d"))
@@ -148,6 +154,7 @@ func TestModelDeleteFlow(t *testing.T) {
 }
 
 func TestWrapPreservesEmptyLines(t *testing.T) {
+	t.Parallel()
 	got := wrap("line one\n\nline three", 80)
 	if !strings.Contains(got, "line one") || !strings.Contains(got, "line three") {
 		t.Errorf("wrap dropped content: %q", got)
@@ -155,6 +162,7 @@ func TestWrapPreservesEmptyLines(t *testing.T) {
 }
 
 func TestTruncateMiddleKeepsBothEnds(t *testing.T) {
+	t.Parallel()
 	got := truncateMiddle("launchd-user:com.example.really.long.identifier", 30)
 	if !strings.HasPrefix(got, "launchd") {
 		t.Errorf("prefix lost: %q", got)
@@ -165,6 +173,7 @@ func TestTruncateMiddleKeepsBothEnds(t *testing.T) {
 }
 
 func TestModelDeleteOnSystemRowOpensReadOnlyModal(t *testing.T) {
+	t.Parallel()
 	m, stub := newTestModel(cron.Job{ID: "stub:sys", Name: "sys-job", Scope: cron.ScopeSystem})
 	mm, _ := m.Update(jobsLoadedMsg{jobs: stub.jobs})
 	// 'a' to reveal system rows, then 'd'.
@@ -184,6 +193,7 @@ func TestModelDeleteOnSystemRowOpensReadOnlyModal(t *testing.T) {
 }
 
 func TestModelTogglesSystemVisibility(t *testing.T) {
+	t.Parallel()
 	jobs := []cron.Job{
 		{ID: "stub:user1", Name: "user1"},
 		{ID: "stub:sys1", Name: "sys1", Scope: cron.ScopeSystem},
@@ -209,6 +219,7 @@ func TestModelTogglesSystemVisibility(t *testing.T) {
 }
 
 func TestModelHundredJobsScrolls(t *testing.T) {
+	t.Parallel()
 	jobs := make([]cron.Job, 100)
 	for i := range jobs {
 		jobs[i] = cron.Job{ID: "stub:" + string(rune('a'+i%26)), Name: "j", Kind: cron.KindCrontab}

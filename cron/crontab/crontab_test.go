@@ -2,6 +2,7 @@ package crontab
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"testing"
 
@@ -93,7 +94,7 @@ func TestCrontabDeleteUnknownIDReturnsNotFound(t *testing.T) {
 	f := &fakeCrontab{content: "*/5 * * * * /usr/bin/foo\n"}
 	c := New()
 	c.Runner = f.run
-	if err := c.Delete(t.Context(), "crontab:deadbeef"); err != cron.ErrNotFound {
+	if err := c.Delete(t.Context(), "crontab:deadbeef"); !errors.Is(err, cron.ErrNotFound) {
 		t.Errorf("want cron.ErrNotFound, got %v", err)
 	}
 }
@@ -120,36 +121,49 @@ func TestCrontabDeleteLastEntryRemovesCrontab(t *testing.T) {
 }
 
 func TestSplitCrontabLine(t *testing.T) {
+	t.Parallel()
 	cases := []struct {
+		name     string
 		in       string
 		schedule string
 		command  string
 		ok       bool
 	}{
-		{"*/5 * * * * /bin/foo", "*/5 * * * *", "/bin/foo", true},
-		{"  0  9 *  *  1   /bin/foo --x", "0 9 * * 1", "/bin/foo --x", true},
-		{"@daily /bin/foo", "@daily", "/bin/foo", true},
-		{"@reboot", "", "", false},
-		{"too few", "", "", false},
+		{"five-field", "*/5 * * * * /bin/foo", "*/5 * * * *", "/bin/foo", true},
+		{"runs of whitespace", "  0  9 *  *  1   /bin/foo --x", "0 9 * * 1", "/bin/foo --x", true},
+		{"descriptor", "@daily /bin/foo", "@daily", "/bin/foo", true},
+		{"descriptor without command", "@reboot", "", "", false},
+		{"too few fields", "too few", "", "", false},
 	}
 	for _, tc := range cases {
-		s, c, ok := splitCrontabLine(tc.in)
-		if ok != tc.ok || s != tc.schedule || c != tc.command {
-			t.Errorf("split(%q) = (%q,%q,%v), want (%q,%q,%v)", tc.in, s, c, ok, tc.schedule, tc.command, tc.ok)
-		}
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			s, c, ok := splitCrontabLine(tc.in)
+			if ok != tc.ok || s != tc.schedule || c != tc.command {
+				t.Errorf("split(%q) = (%q,%q,%v), want (%q,%q,%v)", tc.in, s, c, ok, tc.schedule, tc.command, tc.ok)
+			}
+		})
 	}
 }
 
 func TestCommandShortName(t *testing.T) {
-	cases := []struct{ in, want string }{
-		{"/usr/bin/echo hi", "echo"},
-		{"PATH=/x:/y /usr/local/bin/run", "run"},
-		{"foo bar", "foo"},
-		{"", ""},
+	t.Parallel()
+	cases := []struct {
+		name string
+		in   string
+		want string
+	}{
+		{"absolute path", "/usr/bin/echo hi", "echo"},
+		{"env-prefixed path", "PATH=/x:/y /usr/local/bin/run", "run"},
+		{"bare command", "foo bar", "foo"},
+		{"empty", "", ""},
 	}
 	for _, tc := range cases {
-		if got := cron.CommandShortName(tc.in); got != tc.want {
-			t.Errorf("cron.CommandShortName(%q) = %q, want %q", tc.in, got, tc.want)
-		}
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			if got := cron.CommandShortName(tc.in); got != tc.want {
+				t.Errorf("cron.CommandShortName(%q) = %q, want %q", tc.in, got, tc.want)
+			}
+		})
 	}
 }

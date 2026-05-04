@@ -3,6 +3,7 @@
 package systemd
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -45,6 +46,7 @@ func writePair(t *testing.T, dir, label string) {
 }
 
 func TestSystemdListFromTempDir(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	writePair(t, dir, "eon-test-1")
 	writePair(t, dir, "eon-test-2")
@@ -66,6 +68,7 @@ func TestSystemdListFromTempDir(t *testing.T) {
 }
 
 func TestSystemdDeleteRemovesUnits(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	writePair(t, dir, "eon-target")
 
@@ -78,12 +81,13 @@ func TestSystemdDeleteRemovesUnits(t *testing.T) {
 			t.Errorf("%s still exists: %v", ext, err)
 		}
 	}
-	if err := src.Delete(t.Context(), "systemd-test:eon-target"); err != cron.ErrNotFound {
+	if err := src.Delete(t.Context(), "systemd-test:eon-target"); !errors.Is(err, cron.ErrNotFound) {
 		t.Errorf("second delete should return cron.ErrNotFound, got %v", err)
 	}
 }
 
 func TestSystemdHundredTimers(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	for i := range 100 {
 		writePair(t, dir, fmt.Sprintf("eon-bulk-%03d", i))
@@ -104,13 +108,15 @@ func TestSystemdHundredTimers(t *testing.T) {
 }
 
 func TestSystemdDeleteUnknownReturnsNotFound(t *testing.T) {
+	t.Parallel()
 	src := &Systemd{Dir: t.TempDir(), Tag: "test"}
-	if err := src.Delete(t.Context(), "systemd-test:nope"); err != cron.ErrNotFound {
+	if err := src.Delete(t.Context(), "systemd-test:nope"); !errors.Is(err, cron.ErrNotFound) {
 		t.Errorf("want cron.ErrNotFound, got %v", err)
 	}
 }
 
 func TestSystemdReadOnlyMarksAndRefuses(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	writePair(t, dir, "system-job")
 	src := &Systemd{Dir: dir, Tag: "etc", ReadOnly: true}
@@ -131,6 +137,7 @@ func TestSystemdReadOnlyMarksAndRefuses(t *testing.T) {
 }
 
 func TestParseUnitIgnoresCommentsAndEmptySections(t *testing.T) {
+	t.Parallel()
 	got := parseUnit(`# leading comment
 ; another
 
