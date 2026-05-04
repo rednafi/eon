@@ -18,7 +18,7 @@ var systemLaunchdDirs = []struct{ tag, dir string }{
 // so the CLI/TUI can hide them by default.
 func DefaultManager() (*Manager, []error) {
 	var (
-		origins []Origin
+		origins []Source
 		errs    []error
 	)
 	origins = append(origins, NewCrontab())

@@ -15,7 +15,7 @@ import (
 	"github.com/robfig/cron/v3"
 )
 
-// EtcCron is a read-only Origin for the /etc/crontab spool and /etc/cron.d
+// EtcCron is a read-only Source for the /etc/crontab spool and /etc/cron.d
 // drop-in directory. These crontabs use a six-field syntax — the same five
 // schedule fields plus an explicit user column — which the per-user crontab
 // parser doesn't handle. We keep this source distinct so that subtle parser
@@ -37,10 +37,10 @@ func NewEtcCron() *EtcCron {
 	}
 }
 
-// Name implements Origin.
+// Name implementsSource.
 func (e *EtcCron) Name() string { return "crontab-system" }
 
-// List implements Origin. Errors reading individual files are tolerated —
+// List implementsSource. Errors reading individual files are tolerated —
 // surfacing the readable ones is more useful than failing the whole list.
 func (e *EtcCron) List(_ context.Context) ([]Job, error) {
 	var jobs []Job

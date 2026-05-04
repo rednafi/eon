@@ -1,7 +1,7 @@
 // Package origin defines the cron-origin abstraction and shared types.
 //
 // A "cron" in eon is any recurring local job: a crontab line, a launchd agent,
-// a systemd timer, or anything else an Origin plugin understands. Each origin
+// a systemd timer, or anything else an Source plugin understands. Each origin
 // returns Jobs with a stable ID that downstream code (CLI, TUI) can use to
 // show details, tail logs, or delete.
 package cron
@@ -22,7 +22,7 @@ const (
 	KindSystemd Kind = "systemd"
 )
 
-// Job is a single scheduled task surfaced by a Origin.
+// Job is a single scheduled task surfaced by aSource.
 type Job struct {
 	// ID is unique across all sources (e.g. "launchd:com.foo.bar").
 	ID string
@@ -63,8 +63,8 @@ type Job struct {
 	System bool
 }
 
-// Origin enumerates and mutates jobs from a single backend.
-type Origin interface {
+// Source enumerates and mutates jobs from a single backend.
+type Source interface {
 	// Name returns a short, stable identifier ("crontab", "launchd-user").
 	Name() string
 	// List returns the current snapshot of jobs.
@@ -75,24 +75,24 @@ type Origin interface {
 	Delete(ctx context.Context, id string) error
 }
 
-// ErrNotFound is returned by Origin.Delete when no matching job exists.
+// ErrNotFound is returned bySource.Delete when no matching job exists.
 var ErrNotFound = fmt.Errorf("job not found")
 
-// Manager fans out across multiple Origins.
+// Manager fans out across multiple Sources.
 type Manager struct {
-	sources []Origin
+	sources []Source
 }
 
 // NewManager builds a Manager from the given sources.
-func NewManager(sources ...Origin) *Manager {
+func NewManager(sources ...Source) *Manager {
 	return &Manager{sources: sources}
 }
 
-// Origins returns the underlying sources (for diagnostics).
-func (m *Manager) Origins() []Origin { return m.sources }
+ // Sources returns the underlying sources (for diagnostics).
+func (m *Manager) Sources() []Source { return m.sources }
 
-// OriginNames returns one Name per origin, in registration order.
-func (m *Manager) OriginNames() []string {
+// SourceNames returns one Name per origin, in registration order.
+func (m *Manager) SourceNames() []string {
 	out := make([]string, len(m.sources))
 	for i, s := range m.sources {
 		out[i] = s.Name()

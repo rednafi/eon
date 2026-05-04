@@ -16,7 +16,7 @@ var systemSystemdDirs = []struct{ tag, dir string }{
 // system systemd directories (read-only). System jobs are tagged
 // Job.System=true so callers can hide them behind a flag.
 func DefaultManager() (*Manager, []error) {
-	origins := []Origin{
+	origins := []Source{
 		NewCrontab(),
 		NewUserSystemd(),
 		NewEtcCron(),

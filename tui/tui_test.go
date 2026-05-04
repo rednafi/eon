@@ -70,7 +70,7 @@ func TestModelRendersJobsAfterLoad(t *testing.T) {
 		cron.Job{ID: "stub:a", Kind: cron.KindCrontab, Name: "alpha", Schedule: "@daily", Status: "scheduled"},
 		cron.Job{ID: "stub:b", Kind: cron.KindLaunchd, Name: "beta", Schedule: "every 5m", Status: "loaded"},
 	)
-	mm, _ := m.Update(jobsLoadedMsg{jobs: m.mgr.Origins()[0].(*stubOrigin).jobs})
+	mm, _ := m.Update(jobsLoadedMsg{jobs: m.mgr.Sources()[0].(*stubOrigin).jobs})
 	v := mm.(Model).render()
 	for _, want := range []string{"alpha", "beta", "@daily", "every 5m"} {
 		if !strings.Contains(v, want) {
@@ -84,7 +84,7 @@ func TestModelDownArrowMovesCursor(t *testing.T) {
 		cron.Job{ID: "stub:a", Name: "alpha"},
 		cron.Job{ID: "stub:b", Name: "beta"},
 	)
-	mm, _ := m.Update(jobsLoadedMsg{jobs: m.mgr.Origins()[0].(*stubOrigin).jobs})
+	mm, _ := m.Update(jobsLoadedMsg{jobs: m.mgr.Sources()[0].(*stubOrigin).jobs})
 	mm, _ = mm.Update(keyPress("down"))
 	if got := mm.(Model).cursor; got != 1 {
 		t.Errorf("cursor want 1, got %d", got)
@@ -97,7 +97,7 @@ func TestModelFilterNarrowsList(t *testing.T) {
 		cron.Job{ID: "stub:beta", Name: "beta"},
 		cron.Job{ID: "stub:gamma", Name: "gamma"},
 	)
-	mm, _ := m.Update(jobsLoadedMsg{jobs: m.mgr.Origins()[0].(*stubOrigin).jobs})
+	mm, _ := m.Update(jobsLoadedMsg{jobs: m.mgr.Sources()[0].(*stubOrigin).jobs})
 	mm, _ = mm.Update(keyPress("/"))
 	mm, _ = mm.Update(keyPress("b"))
 	mm, _ = mm.Update(keyPress("e"))
@@ -116,7 +116,7 @@ func TestModelEnterDrillsIntoDetail(t *testing.T) {
 	m, _ := newTestModel(
 		cron.Job{ID: "stub:a", Name: "alpha", Schedule: "@daily", Command: "/bin/echo hi"},
 	)
-	mm, _ := m.Update(jobsLoadedMsg{jobs: m.mgr.Origins()[0].(*stubOrigin).jobs})
+	mm, _ := m.Update(jobsLoadedMsg{jobs: m.mgr.Sources()[0].(*stubOrigin).jobs})
 	mm, _ = mm.Update(keyPress("enter"))
 	if mm.(Model).view != viewDetail {
 		t.Fatalf("want detail view, got %v", mm.(Model).view)

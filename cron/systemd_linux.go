@@ -29,7 +29,7 @@ func DefaultSystemctlRunner(ctx context.Context, args []string) ([]byte, error) 
 	return out, nil
 }
 
-// Systemd is an Origin backed by systemd timer units in a directory. User
+// Systemd is a Source backed by systemd timer units in a directory. User
 // scope reads ~/.config/systemd/user with delete enabled; system scope reads
 // /etc/systemd/system or /usr/lib/systemd/system with ReadOnly=true.
 type Systemd struct {
@@ -54,10 +54,10 @@ func NewUserSystemd() *Systemd {
 	}
 }
 
-// Name implements Origin.
+// Name implementsSource.
 func (s *Systemd) Name() string { return "systemd-" + s.Tag }
 
-// List implements Origin. We read every *.timer file in Dir, then optionally
+// List implementsSource. We read every *.timer file in Dir, then optionally
 // enrich with `systemctl list-timers --all` runtime data.
 func (s *Systemd) List(ctx context.Context) ([]Job, error) {
 	entries, err := os.ReadDir(s.Dir)
@@ -150,7 +150,7 @@ func parseUnit(content string) map[string]string {
 	return out
 }
 
-// Delete implements Origin. We stop+disable the timer (best-effort), then
+// Delete implementsSource. We stop+disable the timer (best-effort), then
 // remove the .timer and matching .service file from disk. The unit is no
 // longer scheduled after this even if `daemon-reload` hasn't run, because
 // the file backing it is gone.
