@@ -4,7 +4,6 @@ package cli
 
 import (
 	"bytes"
-	"context"
 	"os"
 	"os/exec"
 	"strings"
@@ -33,30 +32,23 @@ func TestCLIEndToEndCrontab(t *testing.T) {
 	}
 
 	mgr := cron.NewManager(cron.NewCrontab())
-	ctx := context.Background()
 
 	var out bytes.Buffer
-	if code := Run(ctx, mgr, []string{"list"}, nil, &out, &out); code != 0 {
-		t.Fatalf("list exit %d: %s", code, out.String())
-	}
+	mustOK(t, runCmd(t, mgr, []string{"list"}, nil, &out, &out))
 	if !strings.Contains(out.String(), "echo eon-cli-test") && !strings.Contains(out.String(), "@daily") {
 		t.Errorf("list missing expected entries:\n%s", out.String())
 	}
 
 	out.Reset()
-	if code := Run(ctx, mgr, []string{"show", "eon-cli-test"}, nil, &out, &out); code != 0 {
-		t.Fatalf("show exit %d: %s", code, out.String())
-	}
+	mustOK(t, runCmd(t, mgr, []string{"show", "eon-cli-test"}, nil, &out, &out))
 	if !strings.Contains(out.String(), "echo eon-cli-test") {
 		t.Errorf("show didn't surface command:\n%s", out.String())
 	}
 
 	out.Reset()
-	if code := Run(ctx, mgr, []string{"delete", "eon-cli-test", "--yes"}, nil, &out, &out); code != 0 {
-		t.Fatalf("delete exit %d: %s", code, out.String())
-	}
+	mustOK(t, runCmd(t, mgr, []string{"delete", "eon-cli-test", "--yes"}, nil, &out, &out))
 
-	jobs, _ := mgr.List(ctx)
+	jobs, _ := mgr.List(t.Context())
 	for _, j := range jobs {
 		if strings.Contains(j.Command, "eon-cli-test") {
 			t.Errorf("deleted job still present: %+v", j)

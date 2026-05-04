@@ -1,15 +1,13 @@
 // Command eon is a local cron monitor.
 //
-// With no arguments, it launches an interactive TUI; with a subcommand, it
-// runs that command and exits. See `eon help` for the full surface.
+// With no arguments eon launches the bubbletea TUI; with a subcommand it
+// dispatches through cobra + charm fang in the cli package.
 package main
 
 import (
 	"context"
 	"fmt"
 	"os"
-	"os/signal"
-	"syscall"
 
 	tea "charm.land/bubbletea/v2"
 
@@ -19,26 +17,21 @@ import (
 )
 
 func main() {
-	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
-	defer cancel()
-
 	mgr, errs := cron.DefaultManager()
 	for _, e := range errs {
 		fmt.Fprintf(os.Stderr, "warning: %v\n", e)
 	}
-
-	// No argv → TUI. We treat the absence of arguments as the most useful
-	// default; CLI-only users can pass `list` (or pipe to a script).
 	if len(os.Args) <= 1 {
 		runTUI(mgr)
 		return
 	}
-	os.Exit(cli.Run(ctx, mgr, os.Args[1:], os.Stdin, os.Stdout, os.Stderr))
+	if err := cli.Execute(context.Background(), mgr); err != nil {
+		os.Exit(1)
+	}
 }
 
 func runTUI(mgr *cron.Manager) {
-	p := tea.NewProgram(tui.New(mgr))
-	if _, err := p.Run(); err != nil {
+	if _, err := tea.NewProgram(tui.New(mgr)).Run(); err != nil {
 		fmt.Fprintln(os.Stderr, "tui:", err)
 		os.Exit(1)
 	}
