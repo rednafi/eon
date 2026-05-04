@@ -1,6 +1,6 @@
 //go:build darwin
 
-package cron
+package source
 
 import (
 	"context"
@@ -9,6 +9,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/rednafi/eon/cron"
 )
 
 // minimalPlist returns a launchd plist body with the supplied label and
@@ -85,8 +87,8 @@ func TestLaunchdDeleteRemovesPlist(t *testing.T) {
 	if _, err := os.Stat(path); !os.IsNotExist(err) {
 		t.Errorf("plist still exists: %v", err)
 	}
-	if err := src.Delete(context.Background(), "launchd-test:com.example.target"); err != ErrNotFound {
-		t.Errorf("second delete should return ErrNotFound, got %v", err)
+	if err := src.Delete(context.Background(), "launchd-test:com.example.target"); err != cron.ErrNotFound {
+		t.Errorf("second delete should return cron.ErrNotFound, got %v", err)
 	}
 }
 

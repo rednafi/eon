@@ -13,11 +13,12 @@ import (
 
 	"github.com/rednafi/eon/cli"
 	"github.com/rednafi/eon/cron"
+	"github.com/rednafi/eon/cron/source"
 	"github.com/rednafi/eon/tui"
 )
 
 func main() {
-	mgr, errs := cron.DefaultManager()
+	mgr, errs := source.Default()
 	for _, e := range errs {
 		fmt.Fprintf(os.Stderr, "warning: %v\n", e)
 	}

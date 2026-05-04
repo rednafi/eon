@@ -1,6 +1,6 @@
 //go:build linux
 
-package cron
+package source
 
 import (
 	"bufio"
@@ -13,10 +13,12 @@ import (
 	"strings"
 	"time"
 
-	"github.com/robfig/cron/v3"
+	cronspec "github.com/robfig/cron/v3"
+
+	"github.com/rednafi/eon/cron"
 )
 
-// EtcCron is a read-only Source for the /etc/crontab spool and /etc/cron.d
+// EtcCron is a read-only cron.Source for the /etc/crontab spool and /etc/cron.d
 // drop-in directory. These crontabs use a six-field syntax — the same five
 // schedule fields plus an explicit user column — which the per-user crontab
 // parser doesn't handle. We keep this source distinct so that subtle parser
@@ -26,7 +28,7 @@ type EtcCron struct {
 	MainPath string
 	// DropInDir is the /etc/cron.d directory of fragment files.
 	DropInDir string
-	parser    cron.Parser
+	parser    cronspec.Parser
 }
 
 // NewEtcCron returns a source for the standard system locations.
@@ -34,21 +36,21 @@ func NewEtcCron() *EtcCron {
 	return &EtcCron{
 		MainPath:  "/etc/crontab",
 		DropInDir: "/etc/cron.d",
-		parser:    cron.NewParser(cron.Minute | cron.Hour | cron.Dom | cron.Month | cron.Dow | cron.Descriptor),
+		parser:    cronspec.NewParser(cronspec.Minute | cronspec.Hour | cronspec.Dom | cronspec.Month | cronspec.Dow | cronspec.Descriptor),
 	}
 }
 
-// Name implements Source.
+// Name implements cron.Source.
 func (e *EtcCron) Name() string { return "crontab-system" }
 
-// Scope implements Source. /etc/crontab and /etc/cron.d are owned by root or
+// cron.Scope implements cron.Source. /etc/crontab and /etc/cron.d are owned by root or
 // the package manager, so we never offer to mutate them.
-func (e *EtcCron) Scope() Scope { return ScopeSystem }
+func (e *EtcCron) Scope() cron.Scope { return cron.ScopeSystem }
 
 // List implementsSource. Errors reading individual files are tolerated —
 // surfacing the readable ones is more useful than failing the whole list.
-func (e *EtcCron) List(_ context.Context) ([]Job, error) {
-	var jobs []Job
+func (e *EtcCron) List(_ context.Context) ([]cron.Job, error) {
+	var jobs []cron.Job
 	if data, err := os.ReadFile(e.MainPath); err == nil {
 		jobs = append(jobs, e.parseFile(e.MainPath, data, "main")...)
 	}
@@ -69,23 +71,23 @@ func (e *EtcCron) List(_ context.Context) ([]Job, error) {
 			}
 		}
 	}
-	slices.SortFunc(jobs, func(a, b Job) int { return cmp.Compare(a.ID, b.ID) })
+	slices.SortFunc(jobs, func(a, b cron.Job) int { return cmp.Compare(a.ID, b.ID) })
 	return jobs, nil
 }
 
 // Delete is a no-op: /etc/crontab and /etc/cron.d entries are owned by root
-// or the system package manager. Returning ErrNotFound rather than a
-// permission error lets the Manager fall through to whichever source does
+// or the system package manager. Returning cron.ErrNotFound rather than a
+// permission error lets the cron.Manager fall through to whichever source does
 // own the ID.
 func (e *EtcCron) Delete(_ context.Context, _ string) error {
-	return ErrNotFound
+	return cron.ErrNotFound
 }
 
 // parseFile pulls cron lines out of either /etc/crontab or a /etc/cron.d
 // fragment. Both share the format: comments, blank lines, ENV=value
 // assignments (skipped), and "<schedule> <user> <command>" entries.
-func (e *EtcCron) parseFile(path string, data []byte, group string) []Job {
-	var jobs []Job
+func (e *EtcCron) parseFile(path string, data []byte, group string) []cron.Job {
+	var jobs []cron.Job
 	scanner := bufio.NewScanner(strings.NewReader(string(data)))
 	scanner.Buffer(make([]byte, 1024*1024), 1024*1024)
 	for scanner.Scan() {
@@ -103,9 +105,9 @@ func (e *EtcCron) parseFile(path string, data []byte, group string) []Job {
 		if !ok {
 			continue
 		}
-		j := Job{
+		j := cron.Job{
 			ID:       "crontab-system:" + shortHash(group+"|"+line),
-			Kind:     KindCrontab,
+			Kind:     cron.KindCrontab,
 			Name:     group + ":" + commandShortName(command),
 			Schedule: schedule,
 			Command:  fmt.Sprintf("[%s] %s", user, command),

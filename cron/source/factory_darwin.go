@@ -1,6 +1,10 @@
 //go:build darwin
 
-package cron
+package source
+
+import (
+	"github.com/rednafi/eon/cron"
+)
 
 // systemLaunchdDirs lists the read-only locations macOS installs background
 // jobs into. Order matters only for tag stability — IDs are
@@ -12,13 +16,13 @@ var systemLaunchdDirs = []struct{ tag, dir string }{
 	{"apple-daemons", "/System/Library/LaunchDaemons"},
 }
 
-// DefaultManager builds the platform-default Manager: user crontab plus the
+// DefaultManager builds the platform-default cron.Manager: user crontab plus the
 // user's LaunchAgents (read-write) and a snapshot of every system Launch*
-// directory (read-only). System jobs are visible but tagged Job.System=true
+// directory (read-only). System jobs are visible but tagged cron.Job.System=true
 // so the CLI/TUI can hide them by default.
-func DefaultManager() (*Manager, []error) {
+func Default() (*cron.Manager, []error) {
 	var (
-		origins []Source
+		origins []cron.Source
 		errs    []error
 	)
 	origins = append(origins, NewCrontab())
@@ -35,5 +39,5 @@ func DefaultManager() (*Manager, []error) {
 			Runner:   DefaultLaunchctlRunner,
 		})
 	}
-	return NewManager(origins...), errs
+	return cron.NewManager(origins...), errs
 }

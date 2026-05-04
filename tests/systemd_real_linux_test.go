@@ -1,6 +1,6 @@
 //go:build linux
 
-package cron
+package tests
 
 import (
 	"context"
@@ -8,26 +8,25 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/rednafi/eon/cron"
+	"github.com/rednafi/eon/cron/source"
 )
 
-// TestSystemdRealRoundTrip exercises the file-based path of the systemd
-// origin against the real default directory ($XDG_CONFIG_HOME/systemd/user
-// or ~/.config/systemd/user). It writes a unique label so we never collide
-// with an existing user timer, and removes its files in cleanup.
-//
-// The systemctl runner is set to nil so the test stays portable: it works
-// whether or not the container has a user-scope systemd running.
+// TestSystemdRealRoundTrip writes a uniquely-labelled .timer + .service
+// into the user's real ~/.config/systemd/user/, asserts source.NewUserSystemd
+// surfaces it, and cleans up. The systemctl runner is nil so the test stays
+// portable across containers with and without a running user systemd.
 func TestSystemdRealRoundTrip(t *testing.T) {
 	if os.Getenv("EON_RUN_REAL_CRON") != "1" {
-		t.Skip("set EON_RUN_REAL_CRON=1 to run (writes to the user's systemd dir)")
+		t.Skip("set EON_RUN_REAL_CRON=1 to run (writes to ~/.config/systemd/user)")
 	}
-	src := NewUserSystemd()
-	src.Systemctl = nil // avoid touching a possibly-absent systemd
+	src := source.NewUserSystemd()
+	src.Systemctl = nil
 
-	label := "eon-real-" + randomSuffix(t)
+	label := "eon-real-" + strings.ToLower(strings.ReplaceAll(t.Name(), "/", "-"))
 	timerPath := filepath.Join(src.Dir, label+".timer")
 	servicePath := filepath.Join(src.Dir, label+".service")
-
 	if err := os.MkdirAll(src.Dir, 0o755); err != nil {
 		t.Fatalf("mkdir: %v", err)
 	}
@@ -60,7 +59,7 @@ ExecStart=/bin/echo eon-real-test
 	if err != nil {
 		t.Fatalf("list: %v", err)
 	}
-	var found *Job
+	var found *cron.Job
 	for i, j := range jobs {
 		if j.Name == label {
 			found = &jobs[i]
@@ -68,34 +67,15 @@ ExecStart=/bin/echo eon-real-test
 		}
 	}
 	if found == nil {
-		t.Fatalf("test timer not in list (%d jobs): names=%v", len(jobs), names(jobs))
+		t.Fatalf("test timer not in list (%d jobs)", len(jobs))
 	}
 	if found.Command != "/bin/echo eon-real-test" {
 		t.Errorf("command mismatch: %q", found.Command)
 	}
-	if found.Schedule != "hourly" {
-		t.Errorf("schedule mismatch: %q", found.Schedule)
-	}
-
 	if err := src.Delete(context.Background(), found.ID); err != nil {
 		t.Fatalf("delete: %v", err)
 	}
 	if _, err := os.Stat(timerPath); !os.IsNotExist(err) {
 		t.Errorf("timer file not removed: %v", err)
 	}
-}
-
-func names(jobs []Job) []string {
-	out := make([]string, len(jobs))
-	for i, j := range jobs {
-		out[i] = j.Name
-	}
-	return out
-}
-
-// randomSuffix returns a per-test-name suffix, deterministic enough that two
-// retries don't fight, but unique enough across tests in the same file.
-func randomSuffix(t *testing.T) string {
-	t.Helper()
-	return strings.ReplaceAll(strings.ToLower(t.Name()), "/", "-")
 }

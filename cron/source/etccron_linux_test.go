@@ -1,6 +1,6 @@
 //go:build linux
 
-package cron
+package source
 
 import (
 	"context"
@@ -8,6 +8,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/rednafi/eon/cron"
 )
 
 func TestEtcCronParsesSixFieldFormat(t *testing.T) {
@@ -41,11 +43,11 @@ PATH=/usr/bin:/bin
 	if len(jobs) != 3 {
 		t.Fatalf("want 3 jobs, got %d: %v", len(jobs), jobs)
 	}
-	if got := src.Scope(); got != ScopeSystem {
-		t.Errorf("EtcCron scope = %v, want %v", got, ScopeSystem)
+	if got := src.Scope(); got != cron.ScopeSystem {
+		t.Errorf("EtcCron scope = %v, want %v", got, cron.ScopeSystem)
 	}
 	for _, j := range jobs {
-		if j.Kind != KindCrontab {
+		if j.Kind != cron.KindCrontab {
 			t.Errorf("expected crontab kind for %q", j.ID)
 		}
 		// Command should carry the user prefix.
@@ -63,7 +65,7 @@ PATH=/usr/bin:/bin
 
 func TestEtcCronDeleteAlwaysReturnsNotFound(t *testing.T) {
 	src := NewEtcCron()
-	if err := src.Delete(context.Background(), "crontab-system:anything"); err != ErrNotFound {
+	if err := src.Delete(context.Background(), "crontab-system:anything"); err != cron.ErrNotFound {
 		t.Errorf("system crontab must be read-only, got %v", err)
 	}
 }

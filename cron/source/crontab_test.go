@@ -1,9 +1,11 @@
-package cron
+package source
 
 import (
 	"context"
 	"strings"
 	"testing"
+
+	"github.com/rednafi/eon/cron"
 )
 
 // fakeCrontab returns a CrontabRunner that pretends a fixed crontab exists,
@@ -89,8 +91,8 @@ func TestCrontabDeleteUnknownIDReturnsNotFound(t *testing.T) {
 	f := &fakeCrontab{content: "*/5 * * * * /usr/bin/foo\n"}
 	c := NewCrontab()
 	c.Runner = f.run
-	if err := c.Delete(context.Background(), "crontab:deadbeef"); err != ErrNotFound {
-		t.Errorf("want ErrNotFound, got %v", err)
+	if err := c.Delete(context.Background(), "crontab:deadbeef"); err != cron.ErrNotFound {
+		t.Errorf("want cron.ErrNotFound, got %v", err)
 	}
 }
 

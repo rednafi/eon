@@ -1,6 +1,10 @@
 //go:build linux
 
-package cron
+package source
+
+import (
+	"github.com/rednafi/eon/cron"
+)
 
 // systemSystemdDirs lists the read-only locations where system-scope timer
 // units live. /etc takes precedence over /usr/lib in real systemd's resolution
@@ -11,12 +15,12 @@ var systemSystemdDirs = []struct{ tag, dir string }{
 	{"lib", "/usr/lib/systemd/system"},
 }
 
-// DefaultManager builds the platform-default Manager: user crontab and user
+// DefaultManager builds the platform-default cron.Manager: user crontab and user
 // systemd timers (read-write), plus /etc/crontab, /etc/cron.d, and the
 // system systemd directories (read-only). System jobs are tagged
-// Job.System=true so callers can hide them behind a flag.
-func DefaultManager() (*Manager, []error) {
-	origins := []Source{
+// cron.Job.System=true so callers can hide them behind a flag.
+func Default() (*cron.Manager, []error) {
+	origins := []cron.Source{
 		NewCrontab(),
 		NewUserSystemd(),
 		NewEtcCron(),
@@ -29,5 +33,5 @@ func DefaultManager() (*Manager, []error) {
 			Systemctl: nil, // never invoke systemctl on system units
 		})
 	}
-	return NewManager(origins...), nil
+	return cron.NewManager(origins...), nil
 }

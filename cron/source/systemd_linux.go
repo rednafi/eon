@@ -1,6 +1,6 @@
 //go:build linux
 
-package cron
+package source
 
 import (
 	"bufio"
@@ -12,6 +12,8 @@ import (
 	"cmp"
 	"slices"
 	"strings"
+
+	"github.com/rednafi/eon/cron"
 )
 
 // SystemctlRunner runs systemctl with the given args. Tests inject a fake.
@@ -30,7 +32,7 @@ func DefaultSystemctlRunner(ctx context.Context, args []string) ([]byte, error) 
 	return out, nil
 }
 
-// Systemd is a Source backed by systemd timer units in a directory. User
+// Systemd is a cron.Source backed by systemd timer units in a directory. User
 // scope reads ~/.config/systemd/user with delete enabled; system scope reads
 // /etc/systemd/system or /usr/lib/systemd/system with ReadOnly=true.
 type Systemd struct {
@@ -55,21 +57,21 @@ func NewUserSystemd() *Systemd {
 	}
 }
 
-// Name implements Source.
+// Name implements cron.Source.
 func (s *Systemd) Name() string { return "systemd-" + s.Tag }
 
-// Scope implements Source. ReadOnly marks the /etc and /usr/lib system
+// cron.Scope implements cron.Source. ReadOnly marks the /etc and /usr/lib system
 // timer dirs; the per-user dir stays writable.
-func (s *Systemd) Scope() Scope {
+func (s *Systemd) Scope() cron.Scope {
 	if s.ReadOnly {
-		return ScopeSystem
+		return cron.ScopeSystem
 	}
-	return ScopeUser
+	return cron.ScopeUser
 }
 
 // List implementsSource. We read every *.timer file in Dir, then optionally
 // enrich with `systemctl list-timers --all` runtime data.
-func (s *Systemd) List(ctx context.Context) ([]Job, error) {
+func (s *Systemd) List(ctx context.Context) ([]cron.Job, error) {
 	entries, err := os.ReadDir(s.Dir)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -77,7 +79,7 @@ func (s *Systemd) List(ctx context.Context) ([]Job, error) {
 		}
 		return nil, fmt.Errorf("read %s: %w", s.Dir, err)
 	}
-	var jobs []Job
+	var jobs []cron.Job
 	for _, e := range entries {
 		if e.IsDir() || !strings.HasSuffix(e.Name(), ".timer") {
 			continue
@@ -88,17 +90,17 @@ func (s *Systemd) List(ctx context.Context) ([]Job, error) {
 		}
 		jobs = append(jobs, j)
 	}
-	slices.SortFunc(jobs, func(a, b Job) int { return cmp.Compare(a.Name, b.Name) })
+	slices.SortFunc(jobs, func(a, b cron.Job) int { return cmp.Compare(a.Name, b.Name) })
 	return jobs, nil
 }
 
 // readTimer parses a *.timer file (a tiny INI-shaped format) plus its sibling
 // *.service file when present. The full systemd unit grammar is large; we
 // extract just the keys eon shows.
-func (s *Systemd) readTimer(path string) (Job, error) {
+func (s *Systemd) readTimer(path string) (cron.Job, error) {
 	raw, err := os.ReadFile(path)
 	if err != nil {
-		return Job{}, err
+		return cron.Job{}, err
 	}
 	timer := parseUnit(string(raw))
 	label := strings.TrimSuffix(filepath.Base(path), ".timer")
@@ -121,9 +123,9 @@ func (s *Systemd) readTimer(path string) (Job, error) {
 			schedule = "(no schedule)"
 		}
 	}
-	return Job{
+	return cron.Job{
 		ID:       "systemd-" + s.Tag + ":" + label,
-		Kind:     KindSystemd,
+		Kind:     cron.KindSystemd,
 		Name:     label,
 		Schedule: schedule,
 		Command:  command,
@@ -166,7 +168,7 @@ func parseUnit(content string) map[string]string {
 func (s *Systemd) Delete(ctx context.Context, id string) error {
 	prefix := "systemd-" + s.Tag + ":"
 	if !strings.HasPrefix(id, prefix) {
-		return ErrNotFound
+		return cron.ErrNotFound
 	}
 	if s.ReadOnly {
 		return fmt.Errorf("%s is read-only", s.Name())
@@ -174,7 +176,7 @@ func (s *Systemd) Delete(ctx context.Context, id string) error {
 	label := strings.TrimPrefix(id, prefix)
 	timerPath := filepath.Join(s.Dir, label+".timer")
 	if _, err := os.Stat(timerPath); os.IsNotExist(err) {
-		return ErrNotFound
+		return cron.ErrNotFound
 	} else if err != nil {
 		return err
 	}

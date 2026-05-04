@@ -1,4 +1,6 @@
-package cron
+package source
+
+import "github.com/rednafi/eon/cron"
 
 import (
 	"bufio"
@@ -10,7 +12,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/robfig/cron/v3"
+	cronspec "github.com/robfig/cron/v3"
 )
 
 // CrontabRunner runs the `crontab` binary. The function returns the bytes of
@@ -36,10 +38,10 @@ func DefaultCrontabRunner(ctx context.Context, args []string, stdin string) ([]b
 	return out, nil
 }
 
-// Crontab is a Source backed by the user crontab.
+// Crontab is a cron.Source backed by the user crontab.
 type Crontab struct {
 	Runner CrontabRunner
-	parser cron.Parser
+	parser cronspec.Parser
 }
 
 // NewCrontab returns a Crontab source using the default shell runner.
@@ -47,20 +49,20 @@ func NewCrontab() *Crontab {
 	return &Crontab{
 		Runner: DefaultCrontabRunner,
 		// Standard 5-field crontab parser with descriptors (@daily, etc).
-		parser: cron.NewParser(cron.Minute | cron.Hour | cron.Dom | cron.Month | cron.Dow | cron.Descriptor),
+		parser: cronspec.NewParser(cronspec.Minute | cronspec.Hour | cronspec.Dom | cronspec.Month | cronspec.Dow | cronspec.Descriptor),
 	}
 }
 
-// Name implements Source.
+// Name implements cron.Source.
 func (c *Crontab) Name() string { return "crontab" }
 
-// Scope implements Source. The user's own crontab is always writable.
-func (c *Crontab) Scope() Scope { return ScopeUser }
+// cron.Scope implements cron.Source. The user's own crontab is always writable.
+func (c *Crontab) Scope() cron.Scope { return cron.ScopeUser }
 
-// List implements Source. Each non-comment, non-blank line in the user crontab
-// becomes a Job. The ID is "crontab:<sha1(line)[:8]>" so deletes survive
+// List implements cron.Source. Each non-comment, non-blank line in the user crontab
+// becomes a cron.Job. The ID is "crontab:<sha1(line)[:8]>" so deletes survive
 // reordering of unrelated lines.
-func (c *Crontab) List(ctx context.Context) ([]Job, error) {
+func (c *Crontab) List(ctx context.Context) ([]cron.Job, error) {
 	out, err := c.Runner(ctx, []string{"-l"}, "")
 	if err != nil {
 		return nil, err
@@ -68,8 +70,8 @@ func (c *Crontab) List(ctx context.Context) ([]Job, error) {
 	return c.parse(string(out)), nil
 }
 
-func (c *Crontab) parse(content string) []Job {
-	var jobs []Job
+func (c *Crontab) parse(content string) []cron.Job {
+	var jobs []cron.Job
 	scanner := bufio.NewScanner(strings.NewReader(content))
 	scanner.Buffer(make([]byte, 1024*1024), 1024*1024)
 	for scanner.Scan() {
@@ -82,9 +84,9 @@ func (c *Crontab) parse(content string) []Job {
 		if !ok {
 			continue
 		}
-		j := Job{
+		j := cron.Job{
 			ID:       "crontab:" + shortHash(line),
-			Kind:     KindCrontab,
+			Kind:     cron.KindCrontab,
 			Name:     commandShortName(command),
 			Schedule: schedule,
 			Command:  command,
@@ -100,11 +102,11 @@ func (c *Crontab) parse(content string) []Job {
 	return jobs
 }
 
-// Delete implements Source. The line is identified by its ID hash so we don't
+// Delete implements cron.Source. The line is identified by its ID hash so we don't
 // rely on positional indices that change as users edit the crontab manually.
 func (c *Crontab) Delete(ctx context.Context, id string) error {
 	if !strings.HasPrefix(id, "crontab:") {
-		return ErrNotFound
+		return cron.ErrNotFound
 	}
 	target := strings.TrimPrefix(id, "crontab:")
 	out, err := c.Runner(ctx, []string{"-l"}, "")
@@ -127,7 +129,7 @@ func (c *Crontab) Delete(ctx context.Context, id string) error {
 		kept = append(kept, line)
 	}
 	if !matched {
-		return ErrNotFound
+		return cron.ErrNotFound
 	}
 	// crontab needs a trailing newline or it complains on some systems.
 	replacement := strings.Join(kept, "\n")

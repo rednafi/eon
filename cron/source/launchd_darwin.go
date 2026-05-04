@@ -1,6 +1,6 @@
 //go:build darwin
 
-package cron
+package source
 
 import (
 	"context"
@@ -14,13 +14,15 @@ import (
 	"time"
 
 	"howett.net/plist"
+
+	"github.com/rednafi/eon/cron"
 )
 
 // LaunchctlRunner executes launchctl with the given args. It returns combined
 // output and an error. Tests inject a fake to avoid mutating system state.
 type LaunchctlRunner func(ctx context.Context, args []string) ([]byte, error)
 
-// Launchd is a Source backed by user launchd agents in a directory of plist
+// Launchd is a cron.Source backed by user launchd agents in a directory of plist
 // files (default ~/Library/LaunchAgents). Multiple Launchd instances may be
 // composed (one per directory) — see NewUserLaunchd / NewSystemLaunchd.
 type Launchd struct {
@@ -59,16 +61,16 @@ func NewSystemLaunchd() *Launchd {
 	}
 }
 
-// Name implements Source.
+// Name implements cron.Source.
 func (l *Launchd) Name() string { return "launchd-" + l.Tag }
 
-// Scope implements Source. ReadOnly distinguishes the user's LaunchAgents
+// cron.Scope implements cron.Source. ReadOnly distinguishes the user's LaunchAgents
 // (writable) from the /Library and /System/Library locations (system-scope).
-func (l *Launchd) Scope() Scope {
+func (l *Launchd) Scope() cron.Scope {
 	if l.ReadOnly {
-		return ScopeSystem
+		return cron.ScopeSystem
 	}
-	return ScopeUser
+	return cron.ScopeUser
 }
 
 // plistDoc is the subset of launchd plist keys we care about. Apple's full
@@ -90,9 +92,9 @@ type plistDoc struct {
 	RunAtLoad             bool     `plist:"RunAtLoad"`
 }
 
-// List implements Source. Missing or unreadable plists are skipped silently;
+// List implements cron.Source. Missing or unreadable plists are skipped silently;
 // a partial directory shouldn't break listing.
-func (l *Launchd) List(ctx context.Context) ([]Job, error) {
+func (l *Launchd) List(ctx context.Context) ([]cron.Job, error) {
 	entries, err := os.ReadDir(l.Dir)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -100,7 +102,7 @@ func (l *Launchd) List(ctx context.Context) ([]Job, error) {
 		}
 		return nil, fmt.Errorf("read %s: %w", l.Dir, err)
 	}
-	var jobs []Job
+	var jobs []cron.Job
 	for _, e := range entries {
 		if e.IsDir() || !strings.HasSuffix(e.Name(), ".plist") {
 			continue
@@ -116,24 +118,24 @@ func (l *Launchd) List(ctx context.Context) ([]Job, error) {
 	if l.Runner != nil {
 		l.enrich(ctx, jobs)
 	}
-	slices.SortFunc(jobs, func(a, b Job) int { return cmp.Compare(a.Name, b.Name) })
+	slices.SortFunc(jobs, func(a, b cron.Job) int { return cmp.Compare(a.Name, b.Name) })
 	return jobs, nil
 }
 
-func (l *Launchd) readPlist(path string) (Job, error) {
+func (l *Launchd) readPlist(path string) (cron.Job, error) {
 	f, err := os.Open(path)
 	if err != nil {
-		return Job{}, err
+		return cron.Job{}, err
 	}
 	defer func() { _ = f.Close() }()
 	raw, err := os.ReadFile(path)
 	if err != nil {
-		return Job{}, err
+		return cron.Job{}, err
 	}
 	var doc plistDoc
 	dec := plist.NewDecoder(f)
 	if err := dec.Decode(&doc); err != nil {
-		return Job{}, err
+		return cron.Job{}, err
 	}
 	label := doc.Label
 	if label == "" {
@@ -146,9 +148,9 @@ func (l *Launchd) readPlist(path string) (Job, error) {
 	if cmd == "" {
 		cmd = "(no command)"
 	}
-	j := Job{
+	j := cron.Job{
 		ID:         "launchd-" + l.Tag + ":" + label,
-		Kind:       KindLaunchd,
+		Kind:       cron.KindLaunchd,
 		Name:       label,
 		Command:    cmd,
 		Schedule:   formatLaunchdSchedule(doc),
@@ -248,7 +250,7 @@ func formatCalendar(m map[string]any) string {
 
 // enrich queries `launchctl list` once and overlays PID/exit-code onto jobs.
 // `launchctl list` columns are: PID Status Label.
-func (l *Launchd) enrich(ctx context.Context, jobs []Job) {
+func (l *Launchd) enrich(ctx context.Context, jobs []cron.Job) {
 	out, err := l.Runner(ctx, []string{"list"})
 	if err != nil {
 		return
@@ -289,11 +291,11 @@ func (l *Launchd) enrich(ctx context.Context, jobs []Job) {
 	}
 }
 
-// Delete implements Source. ReadOnly sources reject the call.
+// Delete implements cron.Source. ReadOnly sources reject the call.
 func (l *Launchd) Delete(ctx context.Context, id string) error {
 	prefix := "launchd-" + l.Tag + ":"
 	if !strings.HasPrefix(id, prefix) {
-		return ErrNotFound
+		return cron.ErrNotFound
 	}
 	if l.ReadOnly {
 		return fmt.Errorf("%s is read-only", l.Name())
@@ -301,7 +303,7 @@ func (l *Launchd) Delete(ctx context.Context, id string) error {
 	label := strings.TrimPrefix(id, prefix)
 	path := filepath.Join(l.Dir, label+".plist")
 	if _, err := os.Stat(path); os.IsNotExist(err) {
-		return ErrNotFound
+		return cron.ErrNotFound
 	} else if err != nil {
 		return err
 	}

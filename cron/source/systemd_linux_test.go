@@ -1,6 +1,6 @@
 //go:build linux
 
-package cron
+package source
 
 import (
 	"context"
@@ -9,6 +9,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/rednafi/eon/cron"
 )
 
 const sampleTimer = `[Unit]
@@ -77,8 +79,8 @@ func TestSystemdDeleteRemovesUnits(t *testing.T) {
 			t.Errorf("%s still exists: %v", ext, err)
 		}
 	}
-	if err := src.Delete(context.Background(), "systemd-test:eon-target"); err != ErrNotFound {
-		t.Errorf("second delete should return ErrNotFound, got %v", err)
+	if err := src.Delete(context.Background(), "systemd-test:eon-target"); err != cron.ErrNotFound {
+		t.Errorf("second delete should return cron.ErrNotFound, got %v", err)
 	}
 }
 
@@ -104,8 +106,8 @@ func TestSystemdHundredTimers(t *testing.T) {
 
 func TestSystemdDeleteUnknownReturnsNotFound(t *testing.T) {
 	src := &Systemd{Dir: t.TempDir(), Tag: "test"}
-	if err := src.Delete(context.Background(), "systemd-test:nope"); err != ErrNotFound {
-		t.Errorf("want ErrNotFound, got %v", err)
+	if err := src.Delete(context.Background(), "systemd-test:nope"); err != cron.ErrNotFound {
+		t.Errorf("want cron.ErrNotFound, got %v", err)
 	}
 }
 
@@ -120,8 +122,8 @@ func TestSystemdReadOnlyMarksAndRefuses(t *testing.T) {
 	if len(jobs) != 1 {
 		t.Fatalf("want 1 job, got %d", len(jobs))
 	}
-	if got := src.Scope(); got != ScopeSystem {
-		t.Errorf("read-only source scope = %v, want %v", got, ScopeSystem)
+	if got := src.Scope(); got != cron.ScopeSystem {
+		t.Errorf("read-only source scope = %v, want %v", got, cron.ScopeSystem)
 	}
 	err = src.Delete(context.Background(), jobs[0].ID)
 	if err == nil || !strings.Contains(err.Error(), "read-only") {
