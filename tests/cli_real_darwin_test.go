@@ -10,7 +10,7 @@ import (
 	"testing"
 
 	"github.com/rednafi/eon/cron"
-	"github.com/rednafi/eon/cron/source"
+	"github.com/rednafi/eon/cron/launchd"
 )
 
 // TestCLIEnd2End100Launchd materialises 100 launchd plists in a tmpdir and
@@ -38,7 +38,7 @@ func TestCLIEnd2End100Launchd(t *testing.T) {
 		}
 	}
 
-	mgr := cron.NewManager(&source.Launchd{Dir: dir, Tag: "test"})
+	mgr := cron.NewManager(&launchd.Launchd{Dir: dir, Tag: "test"})
 
 	out, err := captureCLI(t, mgr, "list")
 	mustOK(t, err)

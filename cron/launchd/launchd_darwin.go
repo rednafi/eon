@@ -1,6 +1,6 @@
 //go:build darwin
 
-package source
+package launchd
 
 import (
 	"context"
@@ -38,8 +38,8 @@ type Launchd struct {
 	Runner LaunchctlRunner
 }
 
-// NewUserLaunchd returns a source for the calling user's LaunchAgents.
-func NewUserLaunchd() (*Launchd, error) {
+// NewUser returns a source for the calling user's LaunchAgents.
+func NewUser() (*Launchd, error) {
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return nil, err
@@ -51,8 +51,8 @@ func NewUserLaunchd() (*Launchd, error) {
 	}, nil
 }
 
-// NewSystemLaunchd returns a read-only source for /Library/LaunchAgents.
-func NewSystemLaunchd() *Launchd {
+// NewSystem returns a read-only source for /Library/LaunchAgents.
+func NewSystem() *Launchd {
 	return &Launchd{
 		Dir:      "/Library/LaunchAgents",
 		Tag:      "system",

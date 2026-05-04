@@ -7,7 +7,7 @@ import (
 	"testing"
 
 	"github.com/rednafi/eon/cron"
-	"github.com/rednafi/eon/cron/source"
+	"github.com/rednafi/eon/cron/crontab"
 )
 
 // TestCLIEnd2EndCrontab installs a real /var/spool crontab via the user's
@@ -17,7 +17,7 @@ func TestCLIEnd2EndCrontab(t *testing.T) {
 	requireRealCron(t)
 	withCrontab(t, "*/5 * * * * /bin/echo eon-cli-test\n@daily /bin/true\n")
 
-	mgr := cron.NewManager(source.NewCrontab())
+	mgr := cron.NewManager(crontab.New())
 
 	out, err := captureCLI(t, mgr, "list")
 	mustOK(t, err)

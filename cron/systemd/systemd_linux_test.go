@@ -1,6 +1,6 @@
 //go:build linux
 
-package source
+package systemd
 
 import (
 	"context"

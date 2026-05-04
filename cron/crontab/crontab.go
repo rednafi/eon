@@ -1,12 +1,10 @@
-package source
+package crontab
 
 import "github.com/rednafi/eon/cron"
 
 import (
 	"bufio"
 	"context"
-	"crypto/sha1"
-	"encoding/hex"
 	"fmt"
 	"os/exec"
 	"strings"
@@ -44,8 +42,8 @@ type Crontab struct {
 	parser cronspec.Parser
 }
 
-// NewCrontab returns a Crontab source using the default shell runner.
-func NewCrontab() *Crontab {
+// New returns a Crontab source using the default shell runner.
+func New() *Crontab {
 	return &Crontab{
 		Runner: DefaultCrontabRunner,
 		// Standard 5-field crontab parser with descriptors (@daily, etc).
@@ -85,9 +83,9 @@ func (c *Crontab) parse(content string) []cron.Job {
 			continue
 		}
 		j := cron.Job{
-			ID:       "crontab:" + shortHash(line),
+			ID:       "crontab:" + cron.ShortHash(line),
 			Kind:     cron.KindCrontab,
-			Name:     commandShortName(command),
+			Name:     cron.CommandShortName(command),
 			Schedule: schedule,
 			Command:  command,
 			Status:   "scheduled",
@@ -122,7 +120,7 @@ func (c *Crontab) Delete(ctx context.Context, id string) error {
 	for scanner.Scan() {
 		line := scanner.Text()
 		trimmed := strings.TrimSpace(line)
-		if trimmed != "" && !strings.HasPrefix(trimmed, "#") && shortHash(line) == target {
+		if trimmed != "" && !strings.HasPrefix(trimmed, "#") && cron.ShortHash(line) == target {
 			matched = true
 			continue
 		}
@@ -179,22 +177,3 @@ func splitCrontabLine(line string) (schedule, command string, ok bool) {
 	return "", "", false
 }
 
-// commandShortName returns a readable name for a crontab command. We strip
-// `env=...` prefixes and take the basename of the first program token.
-func commandShortName(cmd string) string {
-	for _, tok := range strings.Fields(cmd) {
-		if strings.Contains(tok, "=") {
-			continue
-		}
-		if i := strings.LastIndex(tok, "/"); i >= 0 {
-			return tok[i+1:]
-		}
-		return tok
-	}
-	return cmd
-}
-
-func shortHash(s string) string {
-	sum := sha1.Sum([]byte(s))
-	return hex.EncodeToString(sum[:4])
-}

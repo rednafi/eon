@@ -1,6 +1,6 @@
 //go:build linux
 
-package source
+package systemd
 
 import (
 	"bufio"
@@ -42,8 +42,8 @@ type Systemd struct {
 	Systemctl SystemctlRunner
 }
 
-// NewUserSystemd returns the standard user-scope timer source.
-func NewUserSystemd() *Systemd {
+// NewUser returns the standard user-scope timer source.
+func NewUser() *Systemd {
 	dir := os.Getenv("XDG_CONFIG_HOME")
 	if dir == "" {
 		if home, err := os.UserHomeDir(); err == nil {

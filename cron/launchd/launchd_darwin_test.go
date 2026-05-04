@@ -1,6 +1,6 @@
 //go:build darwin
 
-package source
+package launchd
 
 import (
 	"context"

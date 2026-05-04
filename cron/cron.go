@@ -8,6 +8,8 @@ package cron
 import (
 	"cmp"
 	"context"
+	"crypto/sha1"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"slices"
@@ -177,4 +179,29 @@ func (m *Manager) Delete(ctx context.Context, id string) error {
 		}
 	}
 	return ErrNotFound
+}
+
+// ShortHash returns a stable 8-hex-char fingerprint of s. Sources use it for
+// Job IDs that need to survive reordering of unrelated lines (crontab
+// rewrites, cron.d drop-ins) — exported so every backend computes IDs the
+// same way and the CLI/TUI can rely on shape.
+func ShortHash(s string) string {
+	sum := sha1.Sum([]byte(s))
+	return hex.EncodeToString(sum[:4])
+}
+
+// CommandShortName returns a readable label for a shell command: the
+// basename of the first non-assignment token. Sources use it to populate
+// Job.Name when no native label exists (crontab lines, cron.d entries).
+func CommandShortName(cmd string) string {
+	for _, tok := range strings.Fields(cmd) {
+		if strings.Contains(tok, "=") {
+			continue
+		}
+		if i := strings.LastIndex(tok, "/"); i >= 0 {
+			return tok[i+1:]
+		}
+		return tok
+	}
+	return cmd
 }

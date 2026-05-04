@@ -7,18 +7,18 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/rednafi/eon/cron/source"
+	"github.com/rednafi/eon/cron/crontab"
 )
 
 // TestCrontabRealRoundTrip drives the host's real crontab(1) to install a
-// known crontab, parses it via source.NewCrontab, deletes one entry, and
+// known crontab, parses it via crontab.New, deletes one entry, and
 // verifies the spool reflects the change. Snapshot/restore protects the
 // developer's actual schedule when EON_RUN_REAL_CRON is left on.
 func TestCrontabRealRoundTrip(t *testing.T) {
 	requireRealCron(t)
 	withCrontab(t, "*/5 * * * * /bin/echo eon-real-test\n@daily /bin/true\n")
 
-	src := source.NewCrontab()
+	src := crontab.New()
 	jobs, err := src.List(context.Background())
 	if err != nil {
 		t.Fatalf("list: %v", err)

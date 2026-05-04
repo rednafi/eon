@@ -1,6 +1,6 @@
 //go:build linux
 
-package source
+package etccron
 
 import (
 	"bufio"
@@ -31,8 +31,8 @@ type EtcCron struct {
 	parser    cronspec.Parser
 }
 
-// NewEtcCron returns a source for the standard system locations.
-func NewEtcCron() *EtcCron {
+// New returns a source for the standard system locations.
+func New() *EtcCron {
 	return &EtcCron{
 		MainPath:  "/etc/crontab",
 		DropInDir: "/etc/cron.d",
@@ -106,9 +106,9 @@ func (e *EtcCron) parseFile(path string, data []byte, group string) []cron.Job {
 			continue
 		}
 		j := cron.Job{
-			ID:       "crontab-system:" + shortHash(group+"|"+line),
+			ID:       "crontab-system:" + cron.ShortHash(group+"|"+line),
 			Kind:     cron.KindCrontab,
-			Name:     group + ":" + commandShortName(command),
+			Name:     group + ":" + cron.CommandShortName(command),
 			Schedule: schedule,
 			Command:  fmt.Sprintf("[%s] %s", user, command),
 			Status:   "scheduled",

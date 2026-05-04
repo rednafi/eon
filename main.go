@@ -1,7 +1,11 @@
 // Command eon is a local cron monitor.
 //
-// With no arguments eon launches the bubbletea TUI; with a subcommand it
-// dispatches through cobra + charm fang in the cli package.
+// main is the composition root: it asks the per-platform factory for the
+// concrete cron.Source values, wires them into a cron.Manager, and hands
+// that to either the TUI (no args) or the cobra+fang CLI (subcommand).
+// The cron, cli, and tui packages do not name any backend directly — they
+// only see the cron.Source interface. Add a new backend by writing a new
+// subpackage under cron/ and adding it to the platformSources factory.
 package main
 
 import (
@@ -13,15 +17,16 @@ import (
 
 	"github.com/rednafi/eon/cli"
 	"github.com/rednafi/eon/cron"
-	"github.com/rednafi/eon/cron/source"
 	"github.com/rednafi/eon/tui"
 )
 
 func main() {
-	mgr, errs := source.Default()
+	sources, errs := platformSources()
 	for _, e := range errs {
 		fmt.Fprintf(os.Stderr, "warning: %v\n", e)
 	}
+	mgr := cron.NewManager(sources...)
+
 	if len(os.Args) <= 1 {
 		runTUI(mgr)
 		return

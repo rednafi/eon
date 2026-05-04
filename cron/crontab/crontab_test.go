@@ -1,4 +1,4 @@
-package source
+package crontab
 
 import (
 	"context"
@@ -43,7 +43,7 @@ func TestCrontabListSkipsCommentsAndBlank(t *testing.T) {
 @daily /usr/local/bin/backup.sh
 0 9 * * 1 /opt/foo/run --quiet
 `}
-	c := NewCrontab()
+	c := New()
 	c.Runner = f.run
 	jobs, err := c.List(context.Background())
 	if err != nil {
@@ -68,7 +68,7 @@ func TestCrontabListSkipsCommentsAndBlank(t *testing.T) {
 
 func TestCrontabDeleteRemovesOnlyMatch(t *testing.T) {
 	f := &fakeCrontab{content: "*/5 * * * * /usr/bin/foo\n@daily /usr/bin/bar\n"}
-	c := NewCrontab()
+	c := New()
 	c.Runner = f.run
 
 	jobs, err := c.List(context.Background())
@@ -89,7 +89,7 @@ func TestCrontabDeleteRemovesOnlyMatch(t *testing.T) {
 
 func TestCrontabDeleteUnknownIDReturnsNotFound(t *testing.T) {
 	f := &fakeCrontab{content: "*/5 * * * * /usr/bin/foo\n"}
-	c := NewCrontab()
+	c := New()
 	c.Runner = f.run
 	if err := c.Delete(context.Background(), "crontab:deadbeef"); err != cron.ErrNotFound {
 		t.Errorf("want cron.ErrNotFound, got %v", err)
@@ -98,7 +98,7 @@ func TestCrontabDeleteUnknownIDReturnsNotFound(t *testing.T) {
 
 func TestCrontabDeleteLastEntryRemovesCrontab(t *testing.T) {
 	f := &fakeCrontab{content: "*/5 * * * * /usr/bin/foo\n"}
-	c := NewCrontab()
+	c := New()
 	c.Runner = f.run
 
 	jobs, _ := c.List(context.Background())
@@ -146,8 +146,8 @@ func TestCommandShortName(t *testing.T) {
 		{"", ""},
 	}
 	for _, tc := range cases {
-		if got := commandShortName(tc.in); got != tc.want {
-			t.Errorf("commandShortName(%q) = %q, want %q", tc.in, got, tc.want)
+		if got := cron.CommandShortName(tc.in); got != tc.want {
+			t.Errorf("cron.CommandShortName(%q) = %q, want %q", tc.in, got, tc.want)
 		}
 	}
 }

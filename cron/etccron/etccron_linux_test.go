@@ -1,6 +1,6 @@
 //go:build linux
 
-package source
+package etccron
 
 import (
 	"context"
@@ -35,7 +35,7 @@ PATH=/usr/bin:/bin
 		t.Fatalf("write skipped: %v", err)
 	}
 
-	src := &EtcCron{MainPath: main, DropInDir: dropin, parser: NewEtcCron().parser}
+	src := &EtcCron{MainPath: main, DropInDir: dropin, parser: New().parser}
 	jobs, err := src.List(context.Background())
 	if err != nil {
 		t.Fatalf("list: %v", err)
@@ -64,14 +64,14 @@ PATH=/usr/bin:/bin
 }
 
 func TestEtcCronDeleteAlwaysReturnsNotFound(t *testing.T) {
-	src := NewEtcCron()
+	src := New()
 	if err := src.Delete(context.Background(), "crontab-system:anything"); err != cron.ErrNotFound {
 		t.Errorf("system crontab must be read-only, got %v", err)
 	}
 }
 
 func TestEtcCronMissingPathsAreSilent(t *testing.T) {
-	src := &EtcCron{MainPath: "/no/such/file", DropInDir: "/no/such/dir", parser: NewEtcCron().parser}
+	src := &EtcCron{MainPath: "/no/such/file", DropInDir: "/no/such/dir", parser: New().parser}
 	jobs, err := src.List(context.Background())
 	if err != nil {
 		t.Errorf("missing paths should not error: %v", err)

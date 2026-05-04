@@ -10,18 +10,18 @@ import (
 	"testing"
 
 	"github.com/rednafi/eon/cron"
-	"github.com/rednafi/eon/cron/source"
+	"github.com/rednafi/eon/cron/systemd"
 )
 
 // TestSystemdRealRoundTrip writes a uniquely-labelled .timer + .service
-// into the user's real ~/.config/systemd/user/, asserts source.NewUserSystemd
+// into the user's real ~/.config/systemd/user/, asserts systemd.NewUser
 // surfaces it, and cleans up. The systemctl runner is nil so the test stays
 // portable across containers with and without a running user systemd.
 func TestSystemdRealRoundTrip(t *testing.T) {
 	if os.Getenv("EON_RUN_REAL_CRON") != "1" {
 		t.Skip("set EON_RUN_REAL_CRON=1 to run (writes to ~/.config/systemd/user)")
 	}
-	src := source.NewUserSystemd()
+	src := systemd.NewUser()
 	src.Systemctl = nil
 
 	label := "eon-real-" + strings.ToLower(strings.ReplaceAll(t.Name(), "/", "-"))
