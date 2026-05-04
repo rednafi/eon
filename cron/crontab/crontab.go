@@ -183,4 +183,3 @@ func splitCrontabLine(line string) (schedule, command string, ok bool) {
 	}
 	return "", "", false
 }
-

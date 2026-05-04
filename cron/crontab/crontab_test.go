@@ -5,8 +5,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/rednafi/eon/cron"
 	"slices"
+
+	"github.com/rednafi/eon/cron"
 )
 
 // fakeCrontab returns a CrontabRunner that pretends a fixed crontab exists,

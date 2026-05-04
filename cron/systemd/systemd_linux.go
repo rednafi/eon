@@ -4,12 +4,12 @@ package systemd
 
 import (
 	"bufio"
+	"cmp"
 	"context"
 	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
-	"cmp"
 	"slices"
 	"strings"
 

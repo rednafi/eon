@@ -59,8 +59,8 @@ type Job struct {
 	// answer.
 	NextRun, LastRun *time.Time
 	// Status is a short label ("loaded", "running", "exited 1", …).
-	Status string
-	PID int
+	Status       string
+	PID          int
 	LastExitCode int
 	// Stdout/StderrPath, Path are the files the renderer needs to display
 	// raw definitions and tail logs.

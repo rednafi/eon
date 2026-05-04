@@ -13,8 +13,9 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/rednafi/eon/cron"
 	"slices"
+
+	"github.com/rednafi/eon/cron"
 )
 
 // fakeOrigin is a minimal Source used to assemble a Manager without touching
@@ -169,6 +170,17 @@ func TestUnknownCommandIsError(t *testing.T) {
 	var out bytes.Buffer
 	if err := runCmd(t, mgr, []string{"bogus"}, nil, &out, &out); err == nil {
 		t.Errorf("unknown command should produce an error")
+	}
+}
+
+func TestTruncateRunesHandlesMultibyte(t *testing.T) {
+	t.Parallel()
+	// "café" has 4 runes / 5 bytes — naive c[:4] would slice mid-codepoint.
+	if got := truncateRunes("café-runner", 4); got != "caf…" {
+		t.Errorf("truncateRunes(\"café-runner\", 4) = %q, want %q", got, "caf…")
+	}
+	if got := truncateRunes("short", 10); got != "short" {
+		t.Errorf("under-width passthrough failed: %q", got)
 	}
 }
 

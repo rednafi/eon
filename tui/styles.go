@@ -16,13 +16,13 @@ func adaptive(light, dark string) compat.AdaptiveColor {
 }
 
 type theme struct {
-	Title, Subtle, Header               lipgloss.Style
-	Panel, MainPanel, FocusPanel        lipgloss.Style
-	HeaderCell, Selected                lipgloss.Style
-	Status, StatusBad, StatusWarn       lipgloss.Style
-	HelpKey, Help                       lipgloss.Style
-	TabActive, TabInactive              lipgloss.Style
-	Filter, Error                       lipgloss.Style
+	Title, Subtle, Header         lipgloss.Style
+	Panel, MainPanel, FocusPanel  lipgloss.Style
+	HeaderCell, Selected          lipgloss.Style
+	Status, StatusBad, StatusWarn lipgloss.Style
+	HelpKey, Help                 lipgloss.Style
+	TabActive, TabInactive        lipgloss.Style
+	Filter, Error                 lipgloss.Style
 }
 
 func newTheme() theme {

@@ -7,8 +7,9 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
-	"github.com/rednafi/eon/cron"
 	"slices"
+
+	"github.com/rednafi/eon/cron"
 )
 
 type stubOrigin struct {

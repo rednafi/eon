@@ -8,9 +8,27 @@ import (
 	"os"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/rednafi/eon/cron"
 )
+
+// runeWidth measures s in runes rather than bytes. Cells in the eon CLI are
+// plain text (no ANSI), so a rune count is the right cell-count metric for
+// alignment. Using len() drops alignment the moment a job name contains a
+// multi-byte glyph.
+func runeWidth(s string) int { return utf8.RuneCountInString(s) }
+
+// truncateRunes shortens s to width display cells (rune count), replacing
+// the trailing rune with "…" when truncation actually happens. Operates on
+// runes so we never slice through a multi-byte codepoint.
+func truncateRunes(s string, width int) string {
+	if width <= 1 || runeWidth(s) <= width {
+		return s
+	}
+	rs := []rune(s)
+	return string(rs[:width-1]) + "…"
+}
 
 // renderTable prints jobs as a fixed-width table sized to the data. ID can
 // run very long (e.g. "launchd-apple-daemons:com.apple.…"), so we cap that
@@ -27,12 +45,12 @@ func renderTable(w io.Writer, jobs []cron.Job) {
 	}
 	widths := make([]int, len(headers))
 	for i, h := range headers {
-		widths[i] = len(h)
+		widths[i] = runeWidth(h)
 	}
 	for _, r := range rows {
 		for i, c := range r {
-			if len(c) > widths[i] {
-				widths[i] = len(c)
+			if w := runeWidth(c); w > widths[i] {
+				widths[i] = w
 			}
 		}
 	}
@@ -41,12 +59,10 @@ func renderTable(w io.Writer, jobs []cron.Job) {
 	writeRow := func(cells []string) {
 		var b strings.Builder
 		for i, c := range cells {
-			if len(c) > widths[i] {
-				c = c[:widths[i]-1] + "…"
-			}
+			c = truncateRunes(c, widths[i])
 			b.WriteString(c)
 			if i < len(cells)-1 {
-				b.WriteString(strings.Repeat(" ", widths[i]-len(c)+2))
+				b.WriteString(strings.Repeat(" ", widths[i]-runeWidth(c)+2))
 			}
 		}
 		fmt.Fprintln(w, b.String())

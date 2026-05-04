@@ -3,9 +3,9 @@ package cron
 import (
 	"context"
 	"errors"
+	"slices"
 	"strings"
 	"testing"
-	"slices"
 )
 
 // stubOrigin lets manager tests focus on the Manager logic — fanout, sort,
@@ -16,8 +16,8 @@ type stubOrigin struct {
 	del  func(string) error
 }
 
-func (s *stubOrigin) Name() string  { return s.name }
-func (s *stubOrigin) Scope() Scope  { return ScopeUser }
+func (s *stubOrigin) Name() string { return s.name }
+func (s *stubOrigin) Scope() Scope { return ScopeUser }
 func (s *stubOrigin) List(_ context.Context) ([]Job, error) {
 	return slices.Clone(s.jobs), nil
 }

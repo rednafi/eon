@@ -4,11 +4,11 @@ package etccron
 
 import (
 	"bufio"
+	"cmp"
 	"context"
 	"fmt"
 	"os"
 	"path/filepath"
-	"cmp"
 	"slices"
 	"strings"
 	"time"
