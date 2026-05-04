@@ -14,7 +14,7 @@ runuser -u tester -- bash <<'INNER'
 set -euo pipefail
 export PATH=/usr/local/go/bin:$PATH
 cd /home/tester/src
-go build -o /tmp/eon ./cmd/eon
+go build -o /tmp/eon .
 
 # User-scope crontab: visible by default.
 crontab - <<'CRON'
