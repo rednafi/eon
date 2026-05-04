@@ -2,6 +2,7 @@ package tui
 
 import (
 	"strings"
+	"time"
 
 	"charm.land/bubbles/v2/key"
 	"charm.land/bubbles/v2/viewport"
@@ -43,6 +44,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case flashMsg:
 		m.flash = msg.text
+		m.flashUntil = time.Now().Add(flashDuration)
 		return m, reload(m.mgr)
 
 	case tea.KeyPressMsg:
@@ -93,6 +95,11 @@ func (m Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 
+	case viewReadOnly:
+		// Any key dismisses. We send no Cmd because there's nothing to refresh.
+		m.view = viewList
+		return m, nil
+
 	case viewDetail:
 		switch {
 		case key.Matches(msg, m.keys.Back):
@@ -109,10 +116,7 @@ func (m Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		case key.Matches(msg, m.keys.Refresh):
 			return m, reload(m.mgr)
 		case key.Matches(msg, m.keys.Delete):
-			if j, ok := m.currentJob(); ok {
-				m.pendingDelete = j
-				m.view = viewConfirmDelete
-			}
+			m.startDelete()
 			return m, nil
 		case key.Matches(msg, m.keys.Quit):
 			return m, tea.Quit
@@ -156,13 +160,26 @@ func (m Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 				m.refreshDetailContent()
 			}
 		case key.Matches(msg, m.keys.Delete):
-			if j, ok := m.currentJob(); ok {
-				m.pendingDelete = j
-				m.view = viewConfirmDelete
-			}
+			m.startDelete()
 		}
 	}
 	return m, nil
+}
+
+// startDelete inspects the cursored job and routes the user to the right
+// modal: confirm for user-scope jobs, read-only notice for system-scope.
+// Centralised so the list and detail views can share the policy.
+func (m *Model) startDelete() {
+	j, ok := m.currentJob()
+	if !ok {
+		return
+	}
+	m.pendingDelete = j
+	if j.Scope == cron.ScopeSystem {
+		m.view = viewReadOnly
+		return
+	}
+	m.view = viewConfirmDelete
 }
 
 // activeVP returns the viewport backing the current detail tab. Returning a

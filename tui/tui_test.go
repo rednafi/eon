@@ -162,6 +162,25 @@ func TestTruncateMiddleKeepsBothEnds(t *testing.T) {
 	}
 }
 
+func TestModelDeleteOnSystemRowOpensReadOnlyModal(t *testing.T) {
+	m, stub := newTestModel(cron.Job{ID: "stub:sys", Name: "sys-job", Scope: cron.ScopeSystem})
+	mm, _ := m.Update(jobsLoadedMsg{jobs: stub.jobs})
+	// 'a' to reveal system rows, then 'd'.
+	mm, _ = mm.Update(keyPress("a"))
+	mm, _ = mm.Update(keyPress("d"))
+	if got := mm.(Model).view; got != viewReadOnly {
+		t.Fatalf("want viewReadOnly, got %v", got)
+	}
+	// Any key dismisses.
+	mm, _ = mm.Update(keyPress("x"))
+	if got := mm.(Model).view; got != viewList {
+		t.Fatalf("want viewList after dismiss, got %v", got)
+	}
+	if len(stub.deleted) != 0 {
+		t.Errorf("system job should not be deleted: %v", stub.deleted)
+	}
+}
+
 func TestModelTogglesSystemVisibility(t *testing.T) {
 	jobs := []cron.Job{
 		{ID: "stub:user1", Name: "user1"},

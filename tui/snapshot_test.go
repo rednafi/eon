@@ -23,7 +23,7 @@ func TestRenderSnapshot(t *testing.T) {
 	jobs := []cron.Job{
 		{ID: "launchd-user:com.foo.alpha", Kind: cron.KindLaunchd, Scope: cron.ScopeUser, Name: "com.foo.alpha", Schedule: "every 5m", Status: "running"},
 		{ID: "launchd-user:com.foo.beta", Kind: cron.KindLaunchd, Scope: cron.ScopeUser, Name: "com.foo.beta", Schedule: "at load", Status: "loaded"},
-		{ID: "launchd-system:com.example.daemon", Kind: cron.KindLaunchd, Scope: cron.ScopeSystem, Name: "com.example.daemon", Schedule: "every 1h", Status: "loaded"},
+		{ID: "launchd-system:com.example.daemon", Kind: cron.KindLaunchd, Scope: cron.ScopeSystem, Name: "com.example.daemon", Schedule: "every 1h", Status: "loaded", Path: "/Library/LaunchAgents/com.example.daemon.plist"},
 		{ID: "crontab:abcd1234", Kind: cron.KindCrontab, Scope: cron.ScopeUser, Name: "backup.sh", Schedule: "@daily", Status: "scheduled"},
 	}
 	stub := &stubOrigin{jobs: jobs}
@@ -33,5 +33,12 @@ func TestRenderSnapshot(t *testing.T) {
 	mm, _ = mm.Update(jobsLoadedMsg{jobs: jobs})
 	mm, _ = mm.Update(keyPress("a")) // show system rows alongside user rows
 
+	fmt.Fprintln(os.Stdout, mm.(Model).render())
+
+	// Also dump the read-only modal so reviewers can eyeball it.
+	mm, _ = mm.Update(keyPress("down"))
+	mm, _ = mm.Update(keyPress("down"))
+	mm, _ = mm.Update(keyPress("d"))
+	fmt.Fprintln(os.Stdout, "\n--- read-only modal (system-cron deletion blocked) ---")
 	fmt.Fprintln(os.Stdout, mm.(Model).render())
 }

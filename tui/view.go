@@ -34,6 +34,8 @@ func (m Model) render() string {
 		return m.viewDetail()
 	case viewConfirmDelete:
 		return m.viewConfirm()
+	case viewReadOnly:
+		return m.viewReadOnlyPanel()
 	default:
 		return m.viewList()
 	}

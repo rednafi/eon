@@ -18,7 +18,13 @@ const (
 	viewList view = iota
 	viewDetail
 	viewConfirmDelete
+	viewReadOnly // shown when the user tries to delete a system-scope job
 )
+
+// flashDuration is how long a one-line success/failure message stays visible
+// in the status bar after a delete. Long enough to read, short enough not to
+// linger over the next refresh.
+const flashDuration = 3 * time.Second
 
 type detailTab int
 
