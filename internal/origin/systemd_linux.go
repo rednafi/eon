@@ -29,12 +29,13 @@ func DefaultSystemctlRunner(ctx context.Context, args []string) ([]byte, error) 
 	return out, nil
 }
 
-// Systemd is an Origin backed by user systemd timer units in a directory.
-// On real systems Dir is ~/.config/systemd/user; tests set Dir to a tmpdir
-// and pass nil runners to skip systemctl entirely.
+// Systemd is an Origin backed by systemd timer units in a directory. User
+// scope reads ~/.config/systemd/user with delete enabled; system scope reads
+// /etc/systemd/system or /usr/lib/systemd/system with ReadOnly=true.
 type Systemd struct {
 	Dir       string
 	Tag       string
+	ReadOnly  bool
 	Systemctl SystemctlRunner
 }
 
@@ -119,6 +120,7 @@ func (s *Systemd) readTimer(path string) (Job, error) {
 		Status:   "scheduled",
 		Path:     path,
 		Raw:      string(raw),
+		System:   s.ReadOnly,
 	}, nil
 }
 
@@ -156,6 +158,9 @@ func (s *Systemd) Delete(ctx context.Context, id string) error {
 	prefix := "systemd-" + s.Tag + ":"
 	if !strings.HasPrefix(id, prefix) {
 		return ErrNotFound
+	}
+	if s.ReadOnly {
+		return fmt.Errorf("%s is read-only", s.Name())
 	}
 	label := strings.TrimPrefix(id, prefix)
 	timerPath := filepath.Join(s.Dir, label+".timer")

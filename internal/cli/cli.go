@@ -86,22 +86,27 @@ const helpText = `eon — local cron monitor
 
 Usage:
   eon                       launch the TUI (default)
-  eon list [--json]         list all known crons
+  eon list [--all] [--json] list known crons (user-scope by default)
   eon show <id> [--json]    show details for a single cron
   eon logs <id> [-n <N>]    print the last N lines of a cron's stdout/stderr
   eon delete <id> [--yes]   stop and remove a cron (prompts unless --yes)
   eon version
   eon help
 
+By default eon shows only user-scope jobs (your crontab, your launchd/systemd
+user units). Pass --all to also surface read-only system jobs from
+/Library/Launch*, /etc/crontab, /etc/cron.d, and /etc/systemd/system.
+
 IDs:
   Pass either the full ID (e.g. "launchd-user:com.foo.bar") or any unique
-  case-insensitive substring of the ID or name (e.g. "stremio").
+  case-insensitive substring of the ID, name, or command (e.g. "stremio").
 `
 
 func runList(ctx context.Context, mgr *origin.Manager, argv []string, stdout, stderr io.Writer) int {
 	fs := flag.NewFlagSet("list", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	asJSON := fs.Bool("json", false, "emit JSON instead of a table")
+	all := fs.Bool("all", false, "include read-only system jobs (/Library/Launch*, /etc/cron.d, /etc/systemd/system)")
 	if err := fs.Parse(reorderFlags(argv)); err != nil {
 		return 2
 	}
@@ -109,11 +114,26 @@ func runList(ctx context.Context, mgr *origin.Manager, argv []string, stdout, st
 	for _, e := range errs {
 		fmt.Fprintf(stderr, "warning: %v\n", e)
 	}
+	if !*all {
+		jobs = filterUser(jobs)
+	}
 	if *asJSON {
 		return encodeJSON(stdout, jobs)
 	}
 	renderTable(stdout, jobs)
 	return 0
+}
+
+// filterUser drops Job.System=true entries, leaving only the read-write
+// user-scope jobs.
+func filterUser(jobs []origin.Job) []origin.Job {
+	out := make([]origin.Job, 0, len(jobs))
+	for _, j := range jobs {
+		if !j.System {
+			out = append(out, j)
+		}
+	}
+	return out
 }
 
 func runShow(ctx context.Context, mgr *origin.Manager, argv []string, stdout, stderr io.Writer) int {

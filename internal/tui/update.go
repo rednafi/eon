@@ -143,6 +143,12 @@ func (m Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			m.cursor = max(0, len(m.visibleIdx)-1)
 		case key.Matches(msg, m.keys.Refresh):
 			return m, reload(m.mgr)
+		case key.Matches(msg, m.keys.ToggleSystem):
+			m.showSystem = !m.showSystem
+			m.recomputeFilter()
+			if m.cursor >= len(m.visibleIdx) {
+				m.cursor = max(0, len(m.visibleIdx)-1)
+			}
 		case key.Matches(msg, m.keys.Enter):
 			if _, ok := m.currentJob(); ok {
 				m.view = viewDetail
@@ -180,8 +186,8 @@ func (m Model) currentJob() (origin.Job, bool) {
 	return m.jobs[m.visibleIdx[m.cursor]], true
 }
 
-// recomputeFilter rebuilds visibleIdx from the current filter text. Cheap
-// enough to run on every keystroke during typing.
+// recomputeFilter rebuilds visibleIdx from the current filter text and the
+// showSystem toggle. Cheap enough to run on every keystroke during typing.
 func (m *Model) recomputeFilter() {
 	q := strings.ToLower(strings.TrimSpace(m.filter.Value()))
 	m.visibleIdx = m.visibleIdx[:0]
@@ -189,6 +195,9 @@ func (m *Model) recomputeFilter() {
 		m.visibleIdx = make([]int, 0, len(m.jobs))
 	}
 	for i, j := range m.jobs {
+		if j.System && !m.showSystem {
+			continue
+		}
 		if q == "" || jobMatches(&j, q) {
 			m.visibleIdx = append(m.visibleIdx, i)
 		}

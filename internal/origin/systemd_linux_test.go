@@ -109,6 +109,23 @@ func TestSystemdDeleteUnknownReturnsNotFound(t *testing.T) {
 	}
 }
 
+func TestSystemdReadOnlyMarksAndRefuses(t *testing.T) {
+	dir := t.TempDir()
+	writePair(t, dir, "system-job")
+	src := &Systemd{Dir: dir, Tag: "etc", ReadOnly: true}
+	jobs, err := src.List(context.Background())
+	if err != nil {
+		t.Fatalf("list: %v", err)
+	}
+	if len(jobs) != 1 || !jobs[0].System {
+		t.Fatalf("read-only source must mark Job.System=true: %+v", jobs)
+	}
+	err = src.Delete(context.Background(), jobs[0].ID)
+	if err == nil || !strings.Contains(err.Error(), "read-only") {
+		t.Errorf("read-only delete should fail with read-only error, got %v", err)
+	}
+}
+
 func TestParseUnitIgnoresCommentsAndEmptySections(t *testing.T) {
 	got := parseUnit(`# leading comment
 ; another

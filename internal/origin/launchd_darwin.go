@@ -147,6 +147,7 @@ func (l *Launchd) readPlist(path string) (Job, error) {
 		StderrPath: doc.StandardErrorPath,
 		Raw:        string(raw),
 		Status:     launchdStatus(doc),
+		System:     l.ReadOnly,
 	}
 	if doc.StartInterval > 0 {
 		// Best-effort next run from interval — we don't know the load time so

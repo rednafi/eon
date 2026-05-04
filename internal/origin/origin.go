@@ -55,6 +55,12 @@ type Job struct {
 	Path string
 	// Raw is the verbatim source line/plist content for the "raw" tab.
 	Raw string
+	// System is true for OS-installed jobs in read-only locations
+	// (/Library/Launch*, /etc/crontab, /etc/systemd/system, ...). The CLI
+	// and TUI hide these by default and surface them behind a flag/key so
+	// the user-scope view stays focused on jobs the user (or their agents)
+	// created.
+	System bool
 }
 
 // Origin enumerates and mutates jobs from a single backend.

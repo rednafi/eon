@@ -161,6 +161,31 @@ func TestTruncateMiddleKeepsBothEnds(t *testing.T) {
 	}
 }
 
+func TestModelTogglesSystemVisibility(t *testing.T) {
+	jobs := []origin.Job{
+		{ID: "stub:user1", Name: "user1"},
+		{ID: "stub:sys1", Name: "sys1", System: true},
+		{ID: "stub:sys2", Name: "sys2", System: true},
+	}
+	m, _ := newTestModel(jobs...)
+	mm, _ := m.Update(jobsLoadedMsg{jobs: jobs})
+
+	// Default: only the one user job is visible.
+	if got := len(mm.(Model).visibleIdx); got != 1 {
+		t.Fatalf("default visible count = %d, want 1", got)
+	}
+	// Press 'a' → both system jobs become visible.
+	mm, _ = mm.Update(keyPress("a"))
+	if got := len(mm.(Model).visibleIdx); got != 3 {
+		t.Fatalf("after 'a' visible count = %d, want 3", got)
+	}
+	// Press 'a' again → back to user-only.
+	mm, _ = mm.Update(keyPress("a"))
+	if got := len(mm.(Model).visibleIdx); got != 1 {
+		t.Fatalf("after second 'a' visible count = %d, want 1", got)
+	}
+}
+
 func TestModelHundredJobsScrolls(t *testing.T) {
 	jobs := make([]origin.Job, 100)
 	for i := range jobs {

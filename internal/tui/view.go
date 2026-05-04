@@ -75,11 +75,15 @@ func (m Model) renderInfoPanel(width int, context string) string {
 	if len(m.visibleIdx) != len(m.jobs) {
 		count = fmt.Sprintf("%d / %d", len(m.visibleIdx), len(m.jobs))
 	}
+	scope := "user"
+	if m.showSystem {
+		scope = "user + system"
+	}
 	rows := []string{
 		m.theme.Title.Render("eon") + " " + m.theme.Subtle.Render("· local cron monitor"),
 		m.kv("Context:", context),
-		m.kv("Origins:", strings.Join(m.mgr.OriginNames(), ", ")),
-		m.kv("Jobs:", count+"  ("+plat+")"),
+		m.kv("Scope:", scope+"  ("+plat+")"),
+		m.kv("Jobs:", count),
 	}
 	return m.theme.Panel.Width(width).Render(strings.Join(rows, "\n"))
 }
@@ -92,8 +96,8 @@ func (m Model) renderKeymapPanel(width int) string {
 		}
 		return strings.Join(lines, "\n")
 	}
-	left := col([][2]string{{"↑/↓", "navigate"}, {"/", "filter"}, {"r", "refresh"}})
-	right := col([][2]string{{"⏎", "open"}, {"d", "delete"}, {"q", "quit"}})
+	left := col([][2]string{{"↑/↓", "navigate"}, {"/", "filter"}, {"a", "all/user"}})
+	right := col([][2]string{{"⏎", "open"}, {"d", "delete"}, {"r", "refresh"}})
 	body := m.theme.Header.Render("Shortcuts") + "\n" +
 		lipgloss.JoinHorizontal(lipgloss.Top, left, "    ", right)
 	return m.theme.Panel.Width(width).Render(body)

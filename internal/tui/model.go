@@ -54,6 +54,10 @@ type Model struct {
 	cursor   int
 	filter   textinput.Model
 	filterOn bool
+	// showSystem controls whether read-only system jobs (Job.System=true)
+	// appear in the list. Default false: the user-scope view is the
+	// signal, system jobs are noise unless explicitly requested.
+	showSystem bool
 
 	// Cached so we don't rebuild on every render. Recomputed when jobs or
 	// filter text change.

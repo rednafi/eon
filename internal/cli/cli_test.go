@@ -51,6 +51,37 @@ func TestRunListEmpty(t *testing.T) {
 	}
 }
 
+func TestRunListHidesSystemByDefault(t *testing.T) {
+	mgr, _ := newFakeManager(
+		origin.Job{ID: "fake:user", Kind: "fake", Name: "user-job", Schedule: "@daily"},
+		origin.Job{ID: "fake:sys", Kind: "fake", Name: "sys-job", Schedule: "@daily", System: true},
+	)
+	var out bytes.Buffer
+	if code := Run(context.Background(), mgr, []string{"list"}, nil, &out, &out); code != 0 {
+		t.Fatalf("exit %d", code)
+	}
+	if strings.Contains(out.String(), "sys-job") {
+		t.Errorf("default list should hide system jobs:\n%s", out.String())
+	}
+	if !strings.Contains(out.String(), "user-job") {
+		t.Errorf("user job missing:\n%s", out.String())
+	}
+}
+
+func TestRunListAllShowsSystem(t *testing.T) {
+	mgr, _ := newFakeManager(
+		origin.Job{ID: "fake:user", Kind: "fake", Name: "user-job"},
+		origin.Job{ID: "fake:sys", Kind: "fake", Name: "sys-job", System: true},
+	)
+	var out bytes.Buffer
+	if code := Run(context.Background(), mgr, []string{"list", "--all"}, nil, &out, &out); code != 0 {
+		t.Fatalf("exit %d", code)
+	}
+	if !strings.Contains(out.String(), "sys-job") {
+		t.Errorf("--all should surface system jobs:\n%s", out.String())
+	}
+}
+
 func TestRunListJSON(t *testing.T) {
 	mgr, _ := newFakeManager(origin.Job{ID: "fake:1", Kind: "fake", Name: "first", Schedule: "@daily"})
 	var out bytes.Buffer
