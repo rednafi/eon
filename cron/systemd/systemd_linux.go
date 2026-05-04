@@ -32,6 +32,9 @@ func DefaultSystemctlRunner(ctx context.Context, args []string) ([]byte, error) 
 	return out, nil
 }
 
+// Compile-time guard: Systemd satisfies cron.Source.
+var _ cron.Source = (*Systemd)(nil)
+
 // Systemd is a cron.Source backed by systemd timer units in a directory. User
 // scope reads ~/.config/systemd/user with delete enabled; system scope reads
 // /etc/systemd/system or /usr/lib/systemd/system with ReadOnly=true.

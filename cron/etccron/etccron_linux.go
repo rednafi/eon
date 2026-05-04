@@ -23,6 +23,10 @@ import (
 // schedule fields plus an explicit user column — which the per-user crontab
 // parser doesn't handle. We keep this source distinct so that subtle parser
 // bugs in one don't bleed into the other.
+
+// Compile-time guard: EtcCron satisfies cron.Source.
+var _ cron.Source = (*EtcCron)(nil)
+
 type EtcCron struct {
 	// MainPath is the /etc/crontab single-file source.
 	MainPath string

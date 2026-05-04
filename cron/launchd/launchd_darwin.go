@@ -18,6 +18,10 @@ import (
 	"github.com/rednafi/eon/cron"
 )
 
+// Compile-time guard: Launchd satisfies cron.Source. Failed builds are
+// preferable to "missing method" runtime panics.
+var _ cron.Source = (*Launchd)(nil)
+
 // LaunchctlRunner executes launchctl with the given args. It returns combined
 // output and an error. Tests inject a fake to avoid mutating system state.
 type LaunchctlRunner func(ctx context.Context, args []string) ([]byte, error)

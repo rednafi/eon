@@ -1,6 +1,6 @@
+// Package crontab is a cron.Source over the user's crontab spool. Pure
+// interface implementation — main composes it; cli/tui never see the type.
 package crontab
-
-import "github.com/rednafi/eon/cron"
 
 import (
 	"bufio"
@@ -11,7 +11,14 @@ import (
 	"time"
 
 	cronspec "github.com/robfig/cron/v3"
+
+	"github.com/rednafi/eon/cron"
 )
+
+// Compile-time guard: Crontab satisfies cron.Source. If a Source method is
+// renamed or its signature drifts, the package fails to build instead of
+// surfacing as "missing method" at the first cron.NewManager(...) call.
+var _ cron.Source = (*Crontab)(nil)
 
 // CrontabRunner runs the `crontab` binary. The function returns the bytes of
 // stdout for read-style invocations and may also write stdin for replace-style
