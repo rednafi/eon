@@ -133,7 +133,7 @@ func (m *Manager) Find(ctx context.Context, idOrPrefix string) (Job, error) {
 	var matches []Job
 	lower := toLower(idOrPrefix)
 	for _, j := range jobs {
-		if containsFold(j.ID, lower) || containsFold(j.Name, lower) {
+		if containsFold(j.ID, lower) || containsFold(j.Name, lower) || containsFold(j.Command, lower) {
 			matches = append(matches, j)
 		}
 	}

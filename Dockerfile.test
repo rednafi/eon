@@ -1,0 +1,35 @@
+# Image used by `make test-container` and the `linux-container` CI job.
+#
+# Provides a Debian environment with a real Vixie crontab binary so eon's
+# Linux paths can be exercised end-to-end. The systemd-user code path uses
+# only file-based logic (read/write *.timer files), so we don't need systemd
+# as PID 1 inside the container — keeping it slim.
+
+FROM golang:1.26-bookworm
+
+RUN apt-get update \
+ && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+        cron \
+        ca-certificates \
+ && rm -rf /var/lib/apt/lists/*
+
+# `crontab` on Debian needs a writable spool dir. The default is fine but it
+# expects the running user to be a real local account. We add a tester user
+# so the suite doesn't pollute root's crontab — mirrors how a real install
+# would look.
+RUN useradd --create-home --shell /bin/bash tester
+USER tester
+WORKDIR /home/tester/src
+
+# Copy go.mod first so the module-download layer caches between source edits.
+COPY --chown=tester:tester go.mod go.sum ./
+RUN go mod download
+
+COPY --chown=tester:tester . .
+
+# Opt the integration tests in. Without this they're skipped, so a developer
+# running `go test ./...` on their workstation never accidentally writes to
+# their personal crontab.
+ENV EON_RUN_REAL_CRON=1
+
+CMD ["go", "test", "-race", "-count=1", "./..."]

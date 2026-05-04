@@ -328,10 +328,7 @@ func tail(w io.Writer, path string, n int) error {
 		off   = size
 	)
 	for off > 0 && lines <= n {
-		read := int64(chunk)
-		if off < read {
-			read = off
-		}
+		read := min(int64(chunk), off)
 		off -= read
 		piece := make([]byte, read)
 		if _, err := f.ReadAt(piece, off); err != nil && !errors.Is(err, io.EOF) {

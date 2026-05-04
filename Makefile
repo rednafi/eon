@@ -1,6 +1,6 @@
 SHELL := /bin/bash
 
-.PHONY: build test lint vet tidy clean install help
+.PHONY: build test test-container smoke-container lint vet tidy clean install help
 
 GO        ?= go
 PKG       := ./...
@@ -13,6 +13,13 @@ build: $(BIN_DIR) ## build the eon binary
 
 test: ## run the test suite with race detector
 	$(GO) test -race -count=1 $(PKG)
+
+test-container: ## run the full suite inside a Linux container with a real cron daemon
+	docker build -f Dockerfile.test -t eon-test .
+	docker run --rm eon-test
+
+smoke-container: ## end-to-end CLI smoke (build + create cron + list/show/delete) in Linux
+	./scripts/smoke-container.sh
 
 vet: ## go vet all packages
 	$(GO) vet $(PKG)

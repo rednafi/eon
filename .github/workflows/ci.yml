@@ -55,3 +55,15 @@ jobs:
         with:
           version: v2.11.4
           args: --timeout=5m
+
+  linux-container:
+    name: linux-container (real cron)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: build container
+        run: docker build -f Dockerfile.test -t eon-test .
+      - name: run test suite inside container
+        run: docker run --rm eon-test
+      - name: end-to-end CLI smoke test
+        run: ./scripts/smoke-container.sh

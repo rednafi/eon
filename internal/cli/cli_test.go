@@ -117,10 +117,13 @@ func TestRunUnknownCommand(t *testing.T) {
 func TestTailReturnsLastNLines(t *testing.T) {
 	dir := t.TempDir()
 	f := filepath.Join(dir, "log")
-	body := ""
-	for i := 0; i < 50; i++ {
-		body += "line " + string(rune('A'+i%26)) + "\n"
+	var b strings.Builder
+	for i := range 50 {
+		b.WriteString("line ")
+		b.WriteRune(rune('A' + i%26))
+		b.WriteByte('\n')
 	}
+	body := b.String()
 	if err := os.WriteFile(f, []byte(body), 0o600); err != nil {
 		t.Fatalf("write: %v", err)
 	}
