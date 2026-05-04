@@ -1,0 +1,23 @@
+# Conservative lint config. We keep the linter set small and focused so the
+# CI signal stays meaningful — chatty linters cause people to skip the lint
+# job. govet, ineffassign, unused, and gofmt cover 90% of real issues.
+version: "2"
+
+run:
+  timeout: 5m
+
+linters:
+  default: none
+  enable:
+    - errcheck
+    - govet
+    - ineffassign
+    - staticcheck
+    - unused
+
+  settings:
+    errcheck:
+      exclude-functions:
+        - fmt.Fprintln
+        - fmt.Fprintf
+        - fmt.Fprint
