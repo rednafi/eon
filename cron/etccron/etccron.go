@@ -1,5 +1,7 @@
-//go:build linux
-
+// Package etccron is a read-only cron.Source for the system crontab
+// (/etc/crontab) and the run-parts drop-in directory (/etc/cron.d). The
+// package compiles on every platform; whether it's wired into the
+// composed Manager is the per-platform factory's call (today: Linux only).
 package etccron
 
 import (
