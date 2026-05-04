@@ -1,14 +1,11 @@
 package tui
 
 import (
-	"strings"
 	"time"
 
 	"charm.land/bubbles/v2/key"
 	"charm.land/bubbles/v2/viewport"
 	tea "charm.land/bubbletea/v2"
-
-	"github.com/rednafi/eon/cron"
 )
 
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -45,7 +42,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case flashMsg:
 		m.flash = msg.text
 		m.flashUntil = time.Now().Add(flashDuration)
-		return m, reload(m.mgr)
+		// Only reload on successful mutations — a failed delete didn't
+		// change anything on disk, so re-listing every Source is wasted.
+		if msg.ok {
+			return m, reload(m.mgr)
+		}
+		return m, nil
 
 	case tea.KeyPressMsg:
 		return m.handleKey(msg)
@@ -87,7 +89,7 @@ func (m Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	case viewConfirmDelete:
 		switch {
 		case key.Matches(msg, m.keys.Confirm):
-			id := m.pendingDelete.ID
+			id := m.selectedJob.ID
 			m.view = viewList
 			return m, deleteCmd(m.mgr, id)
 		case key.Matches(msg, m.keys.Cancel):
@@ -164,66 +166,4 @@ func (m Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		}
 	}
 	return m, nil
-}
-
-// startDelete inspects the cursored job and routes the user to the right
-// modal: confirm for user-scope jobs, read-only notice for system-scope.
-// Centralised so the list and detail views can share the policy.
-func (m *Model) startDelete() {
-	j, ok := m.currentJob()
-	if !ok {
-		return
-	}
-	m.pendingDelete = j
-	if j.Scope == cron.ScopeSystem {
-		m.view = viewReadOnly
-		return
-	}
-	m.view = viewConfirmDelete
-}
-
-// activeVP returns the viewport backing the current detail tab. Returning a
-// pointer lets callers do `*vp, cmd = vp.Update(msg)` in one place instead of
-// repeating the three-way switch.
-func (m *Model) activeVP() *viewport.Model {
-	switch m.detailTab {
-	case tabRaw:
-		return &m.rawVP
-	case tabLogs:
-		return &m.logsVP
-	default:
-		return &m.detailVP
-	}
-}
-
-func (m Model) currentJob() (cron.Job, bool) {
-	if len(m.visibleIdx) == 0 || m.cursor >= len(m.visibleIdx) {
-		return cron.Job{}, false
-	}
-	return m.jobs[m.visibleIdx[m.cursor]], true
-}
-
-// recomputeFilter rebuilds visibleIdx from the current filter text and the
-// showSystem toggle. Cheap enough to run on every keystroke during typing.
-func (m *Model) recomputeFilter() {
-	q := strings.ToLower(strings.TrimSpace(m.filter.Value()))
-	m.visibleIdx = m.visibleIdx[:0]
-	if cap(m.visibleIdx) < len(m.jobs) {
-		m.visibleIdx = make([]int, 0, len(m.jobs))
-	}
-	for i, j := range m.jobs {
-		if j.Scope == cron.ScopeSystem && !m.showSystem {
-			continue
-		}
-		if q == "" || jobMatches(&j, q) {
-			m.visibleIdx = append(m.visibleIdx, i)
-		}
-	}
-}
-
-func jobMatches(j *cron.Job, lowerQuery string) bool {
-	return strings.Contains(strings.ToLower(j.ID), lowerQuery) ||
-		strings.Contains(strings.ToLower(j.Name), lowerQuery) ||
-		strings.Contains(strings.ToLower(j.Command), lowerQuery) ||
-		strings.Contains(strings.ToLower(j.Schedule), lowerQuery)
 }

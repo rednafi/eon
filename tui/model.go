@@ -21,9 +21,6 @@ const (
 	viewReadOnly // shown when the user tries to delete a system-scope job
 )
 
-// flashDuration is how long a one-line success/failure message stays visible
-// in the status bar after a delete. Long enough to read, short enough not to
-// linger over the next refresh.
 const flashDuration = 3 * time.Second
 
 type detailTab int
@@ -78,7 +75,7 @@ type Model struct {
 	// rebuilding when nothing changed (e.g. on resize while sitting on list).
 	lastDetailID string
 
-	pendingDelete cron.Job
+	selectedJob cron.Job
 	flash         string
 	flashUntil    time.Time
 }
@@ -104,13 +101,27 @@ type jobsLoadedMsg struct {
 	err  string
 }
 
-type flashMsg struct{ text string }
+// flashMsg carries a one-line status update. ok=true means the underlying
+// op mutated state and the UI should reload; ok=false (errors, aborts) only
+// updates the flash and skips the round-trip.
+type flashMsg struct {
+	text string
+	ok   bool
+}
 
-// reload fetches the current snapshot. Bounded by 5s so a stuck launchctl/
-// systemctl can't freeze the UI.
+// listTimeout bounds Manager.List — fans out across multiple Sources, each
+// of which may shell out to launchctl/systemctl/crontab. A stuck binary
+// shouldn't freeze the UI, but we need headroom for cold caches.
+const listTimeout = 5 * time.Second
+
+// deleteTimeout bounds a single Source.Delete — typically one unlink or one
+// launchctl unload, both sub-100ms in the healthy case. 2s is generous
+// enough for a slow disk and tight enough to surface a stuck call.
+const deleteTimeout = 2 * time.Second
+
 func reload(mgr *cron.Manager) tea.Cmd {
 	return func() tea.Msg {
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		ctx, cancel := context.WithTimeout(context.Background(), listTimeout)
 		defer cancel()
 		jobs, errs := mgr.List(ctx)
 		var msg string
@@ -127,11 +138,11 @@ func reload(mgr *cron.Manager) tea.Cmd {
 
 func deleteCmd(mgr *cron.Manager, id string) tea.Cmd {
 	return func() tea.Msg {
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		ctx, cancel := context.WithTimeout(context.Background(), deleteTimeout)
 		defer cancel()
 		if err := mgr.Delete(ctx, id); err != nil {
 			return flashMsg{text: "delete failed: " + err.Error()}
 		}
-		return flashMsg{text: "deleted " + id}
+		return flashMsg{text: "deleted " + id, ok: true}
 	}
 }

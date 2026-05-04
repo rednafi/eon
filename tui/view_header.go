@@ -74,14 +74,25 @@ func (m Model) bodyDims() (width, height, contentWidth int) {
 	return
 }
 
+// modal wraps a body string in the standard modal chrome: header strip,
+// bordered main panel sized to the body area, status bar at the bottom.
+// Every modal view (confirm, read-only, future) goes through this so the
+// chrome can't drift between them.
+func (m Model) modal(context, body string) string {
+	pw, ph, _ := m.bodyDims()
+	panel := m.theme.MainPanel.Width(pw).Height(ph).Render(body)
+	return lipgloss.JoinVertical(lipgloss.Left, m.renderHeader(context), panel, m.renderStatusBar())
+}
+
 func (m Model) renderStatusBar() string {
+	now := time.Now()
 	left := m.theme.Subtle.Render(" eon · ready ")
-	if m.flash != "" && time.Now().Before(m.flashUntil) {
+	if m.flash != "" && now.Before(m.flashUntil) {
 		left = m.theme.Status.Render(" " + m.flash + " ")
 	} else if m.loadErr != "" {
 		left = m.theme.Error.Render(" " + m.loadErr + " ")
 	}
-	right := m.theme.Subtle.Render(time.Now().Format("15:04:05") + " ")
+	right := m.theme.Subtle.Render(now.Format("15:04:05") + " ")
 	pad := max(0, m.width-lipgloss.Width(left)-lipgloss.Width(right))
 	return left + strings.Repeat(" ", pad) + right
 }
