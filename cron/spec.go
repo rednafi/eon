@@ -24,6 +24,22 @@ func ValidateSpec(spec JobSpec) error {
 	return nil
 }
 
+// PrepareIntervalSpec runs the standard pre-flight for a writable Source's
+// Add/Edit: refuses to touch a system-scope Source, validates the spec via
+// ValidateSpec, and parses the schedule into a ScheduleInterval. Backends
+// for non-cron-expression schedulers (launchd, systemd) open Add/Edit with
+// a single call here so the read-only/empty-schedule/parse-failure error
+// paths are uniform.
+func PrepareIntervalSpec(s Source, spec JobSpec) (ScheduleInterval, error) {
+	if s.Scope() == ScopeSystem {
+		return ScheduleInterval{}, fmt.Errorf("%s is read-only", s.Name())
+	}
+	if err := ValidateSpec(spec); err != nil {
+		return ScheduleInterval{}, err
+	}
+	return ParseScheduleInterval(spec.Schedule)
+}
+
 // ScheduleInterval is the portable view of a JobSpec.Schedule for backends
 // that don't natively speak 5-field cron (launchd, systemd).
 //

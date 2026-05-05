@@ -153,13 +153,7 @@ func (s *Systemd) readTimer(path string) (cron.Job, error) {
 // into systemd's OnUnitActiveSec or OnCalendar, then write a .timer
 // + .service pair into Dir. daemon-reload is best-effort.
 func (s *Systemd) Add(ctx context.Context, spec cron.JobSpec) (cron.Job, error) {
-	if s.ReadOnly {
-		return cron.Job{}, fmt.Errorf("%s is read-only", s.Name())
-	}
-	if err := cron.ValidateSpec(spec); err != nil {
-		return cron.Job{}, err
-	}
-	interval, err := cron.ParseScheduleInterval(spec.Schedule)
+	interval, err := cron.PrepareIntervalSpec(s, spec)
 	if err != nil {
 		return cron.Job{}, err
 	}
@@ -193,13 +187,7 @@ func (s *Systemd) Edit(ctx context.Context, id string, spec cron.JobSpec) (cron.
 	if !ok {
 		return cron.Job{}, cron.ErrNotFound
 	}
-	if s.ReadOnly {
-		return cron.Job{}, fmt.Errorf("%s is read-only", s.Name())
-	}
-	if err := cron.ValidateSpec(spec); err != nil {
-		return cron.Job{}, err
-	}
-	interval, err := cron.ParseScheduleInterval(spec.Schedule)
+	interval, err := cron.PrepareIntervalSpec(s, spec)
 	if err != nil {
 		return cron.Job{}, err
 	}

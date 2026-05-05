@@ -345,13 +345,7 @@ func (l *Launchd) enrich(ctx context.Context, jobs []cron.Job) {
 // — they don't have a clean launchd equivalent and the user should
 // target the crontab source instead.
 func (l *Launchd) Add(_ context.Context, spec cron.JobSpec) (cron.Job, error) {
-	if l.ReadOnly {
-		return cron.Job{}, fmt.Errorf("%s is read-only", l.Name())
-	}
-	if err := cron.ValidateSpec(spec); err != nil {
-		return cron.Job{}, err
-	}
-	interval, err := cron.ParseScheduleInterval(spec.Schedule)
+	interval, err := cron.PrepareIntervalSpec(l, spec)
 	if err != nil {
 		return cron.Job{}, err
 	}
@@ -377,13 +371,7 @@ func (l *Launchd) Edit(_ context.Context, id string, spec cron.JobSpec) (cron.Jo
 	if !ok {
 		return cron.Job{}, cron.ErrNotFound
 	}
-	if l.ReadOnly {
-		return cron.Job{}, fmt.Errorf("%s is read-only", l.Name())
-	}
-	if err := cron.ValidateSpec(spec); err != nil {
-		return cron.Job{}, err
-	}
-	interval, err := cron.ParseScheduleInterval(spec.Schedule)
+	interval, err := cron.PrepareIntervalSpec(l, spec)
 	if err != nil {
 		return cron.Job{}, err
 	}
