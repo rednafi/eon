@@ -3,6 +3,8 @@
 package tests
 
 import (
+	"errors"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -74,7 +76,7 @@ ExecStart=/bin/echo eon-real-test
 	if err := src.Delete(t.Context(), found.ID); err != nil {
 		t.Fatalf("delete: %v", err)
 	}
-	if _, err := os.Stat(timerPath); !os.IsNotExist(err) {
+	if _, err := os.Stat(timerPath); !errors.Is(err, fs.ErrNotExist) {
 		t.Errorf("timer file not removed: %v", err)
 	}
 }

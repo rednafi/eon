@@ -7,7 +7,9 @@ import (
 	"cmp"
 	"context"
 	"encoding/xml"
+	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"slices"
@@ -107,7 +109,7 @@ type plistDoc struct {
 func (l *Launchd) List(ctx context.Context) ([]cron.Job, error) {
 	entries, err := os.ReadDir(l.Dir)
 	if err != nil {
-		if os.IsNotExist(err) {
+		if errors.Is(err, fs.ErrNotExist) {
 			return nil, nil
 		}
 		return nil, fmt.Errorf("read %s: %w", l.Dir, err)
@@ -386,7 +388,7 @@ func (l *Launchd) Edit(_ context.Context, id string, spec cron.JobSpec) (cron.Jo
 		return cron.Job{}, err
 	}
 	path := filepath.Join(l.Dir, label+".plist")
-	if _, err := os.Stat(path); os.IsNotExist(err) {
+	if _, err := os.Stat(path); errors.Is(err, fs.ErrNotExist) {
 		return cron.Job{}, cron.ErrNotFound
 	} else if err != nil {
 		return cron.Job{}, err
@@ -501,7 +503,7 @@ func (l *Launchd) Delete(ctx context.Context, id string) error {
 		return fmt.Errorf("%s is read-only", l.Name())
 	}
 	path := filepath.Join(l.Dir, label+".plist")
-	if _, err := os.Stat(path); os.IsNotExist(err) {
+	if _, err := os.Stat(path); errors.Is(err, fs.ErrNotExist) {
 		return cron.ErrNotFound
 	} else if err != nil {
 		return err
@@ -514,7 +516,7 @@ func (l *Launchd) Delete(ctx context.Context, id string) error {
 		// Race with another deletion: between Stat and Remove the file was
 		// removed by something else. Treat the same way as if Stat had
 		// originally returned NotExist — the desired end-state already holds.
-		if os.IsNotExist(err) {
+		if errors.Is(err, fs.ErrNotExist) {
 			return cron.ErrNotFound
 		}
 		return fmt.Errorf("remove %s: %w", path, err)

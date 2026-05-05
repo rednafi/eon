@@ -24,7 +24,7 @@ type mutStubOrigin struct {
 func (m *mutStubOrigin) Add(_ context.Context, spec cron.JobSpec) (cron.Job, error) {
 	m.added = append(m.added, spec)
 	j := cron.Job{
-		ID: fmt.Sprintf("stub:add-%d", len(m.added)),
+		ID:   fmt.Sprintf("stub:add-%d", len(m.added)),
 		Kind: cron.KindCrontab, Name: spec.Command,
 		Schedule: spec.Schedule, Command: spec.Command,
 	}

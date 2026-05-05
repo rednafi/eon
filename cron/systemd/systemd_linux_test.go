@@ -5,6 +5,7 @@ package systemd
 import (
 	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -77,7 +78,7 @@ func TestSystemdDeleteRemovesUnits(t *testing.T) {
 		t.Fatalf("delete: %v", err)
 	}
 	for _, ext := range []string{".timer", ".service"} {
-		if _, err := os.Stat(filepath.Join(dir, "eon-target"+ext)); !os.IsNotExist(err) {
+		if _, err := os.Stat(filepath.Join(dir, "eon-target"+ext)); !errors.Is(err, fs.ErrNotExist) {
 			t.Errorf("%s still exists: %v", ext, err)
 		}
 	}

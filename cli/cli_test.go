@@ -45,7 +45,7 @@ func (f *fakeOrigin) Delete(_ context.Context, id string) error {
 func (f *fakeOrigin) Add(_ context.Context, spec cron.JobSpec) (cron.Job, error) {
 	f.added = append(f.added, spec)
 	j := cron.Job{
-		ID: "fake:" + cron.ShortHash(spec.Schedule+"|"+spec.Command),
+		ID:   "fake:" + cron.ShortHash(spec.Schedule+"|"+spec.Command),
 		Kind: "fake", Name: spec.Command,
 		Schedule: spec.Schedule, Command: spec.Command,
 	}

@@ -7,6 +7,7 @@ import (
 	"encoding/xml"
 	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -88,7 +89,7 @@ func TestLaunchdDeleteRemovesPlist(t *testing.T) {
 	if err := src.Delete(t.Context(), "launchd-test:com.example.target"); err != nil {
 		t.Fatalf("delete: %v", err)
 	}
-	if _, err := os.Stat(path); !os.IsNotExist(err) {
+	if _, err := os.Stat(path); !errors.Is(err, fs.ErrNotExist) {
 		t.Errorf("plist still exists: %v", err)
 	}
 	if err := src.Delete(t.Context(), "launchd-test:com.example.target"); !errors.Is(err, cron.ErrNotFound) {
@@ -542,7 +543,7 @@ func TestLaunchdDeleteIgnoresUnloadFailure(t *testing.T) {
 	if err := src.Delete(t.Context(), "launchd-test:com.example.zombie"); err != nil {
 		t.Errorf("delete should still succeed when unload fails (best-effort): %v", err)
 	}
-	if _, err := os.Stat(plistPath); !os.IsNotExist(err) {
+	if _, err := os.Stat(plistPath); !errors.Is(err, fs.ErrNotExist) {
 		t.Errorf("plist should have been removed, got %v", err)
 	}
 }

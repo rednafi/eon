@@ -5,7 +5,9 @@ package systemd
 import (
 	"cmp"
 	"context"
+	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -76,7 +78,7 @@ func (s *Systemd) Scope() cron.Scope {
 func (s *Systemd) List(ctx context.Context) ([]cron.Job, error) {
 	entries, err := os.ReadDir(s.Dir)
 	if err != nil {
-		if os.IsNotExist(err) {
+		if errors.Is(err, fs.ErrNotExist) {
 			return nil, nil
 		}
 		return nil, fmt.Errorf("read %s: %w", s.Dir, err)
@@ -202,7 +204,7 @@ func (s *Systemd) Edit(ctx context.Context, id string, spec cron.JobSpec) (cron.
 		return cron.Job{}, err
 	}
 	timerPath := filepath.Join(s.Dir, label+".timer")
-	if _, err := os.Stat(timerPath); os.IsNotExist(err) {
+	if _, err := os.Stat(timerPath); errors.Is(err, fs.ErrNotExist) {
 		return cron.Job{}, cron.ErrNotFound
 	} else if err != nil {
 		return cron.Job{}, err
@@ -237,7 +239,7 @@ func (s *Systemd) Delete(ctx context.Context, id string) error {
 		return fmt.Errorf("%s is read-only", s.Name())
 	}
 	timerPath := filepath.Join(s.Dir, label+".timer")
-	if _, err := os.Stat(timerPath); os.IsNotExist(err) {
+	if _, err := os.Stat(timerPath); errors.Is(err, fs.ErrNotExist) {
 		return cron.ErrNotFound
 	} else if err != nil {
 		return err

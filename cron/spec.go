@@ -11,8 +11,8 @@ import (
 //
 // We accept two forms:
 //
-//   "@every <Go duration>"   →  Every: <duration>, Descriptor: ""
-//   "@hourly|daily|weekly"   →  Descriptor: <name>, Every: 0
+//	"@every <Go duration>"   →  Every: <duration>, Descriptor: ""
+//	"@hourly|daily|weekly"   →  Descriptor: <name>, Every: 0
 //
 // Anything else returns an error so callers can fall through to a
 // crontab-backed source (which DOES speak 5-field cron natively).

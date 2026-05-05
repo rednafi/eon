@@ -51,9 +51,9 @@ OnCalendar=hourly
 WantedBy=timers.target
 `)
 	for k, want := range map[string]string{
-		"Unit.Description":   "Demo",
-		"Timer.OnCalendar":   "hourly",
-		"Install.WantedBy":   "timers.target",
+		"Unit.Description": "Demo",
+		"Timer.OnCalendar": "hourly",
+		"Install.WantedBy": "timers.target",
 	} {
 		if got[k] != want {
 			t.Errorf("%s = %q, want %q", k, got[k], want)
