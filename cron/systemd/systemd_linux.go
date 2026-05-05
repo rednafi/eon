@@ -159,13 +159,24 @@ func (s *Systemd) Add(ctx context.Context, spec cron.JobSpec) (cron.Job, error) 
 	}
 	label := systemdLabel(spec.Command)
 	timerPath := filepath.Join(s.Dir, label+".timer")
-	if _, err := os.Stat(timerPath); err == nil {
-		return cron.Job{}, fmt.Errorf("a timer for %q already exists at %s; use eon edit", label, timerPath)
-	}
 	if err := os.MkdirAll(s.Dir, 0o755); err != nil {
 		return cron.Job{}, err
 	}
-	if err := os.WriteFile(timerPath, []byte(renderTimer(label, interval.Every, interval.Descriptor)), 0o644); err != nil {
+	// O_CREATE|O_EXCL atomically refuses to clobber an existing timer.
+	tf, err := os.OpenFile(timerPath, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o644)
+	if err != nil {
+		if errors.Is(err, fs.ErrExist) {
+			return cron.Job{}, fmt.Errorf("a timer for %q already exists at %s; use eon edit", label, timerPath)
+		}
+		return cron.Job{}, err
+	}
+	if _, err := tf.Write([]byte(renderTimer(label, interval.Every, interval.Descriptor))); err != nil {
+		tf.Close()
+		_ = os.Remove(timerPath)
+		return cron.Job{}, err
+	}
+	if err := tf.Close(); err != nil {
+		_ = os.Remove(timerPath)
 		return cron.Job{}, err
 	}
 	servicePath := filepath.Join(s.Dir, label+".service")
@@ -192,12 +203,20 @@ func (s *Systemd) Edit(ctx context.Context, id string, spec cron.JobSpec) (cron.
 		return cron.Job{}, err
 	}
 	timerPath := filepath.Join(s.Dir, label+".timer")
-	if _, err := os.Stat(timerPath); errors.Is(err, fs.ErrNotExist) {
-		return cron.Job{}, cron.ErrNotFound
-	} else if err != nil {
+	// Open without O_CREATE so we get fs.ErrNotExist when the timer is
+	// gone, instead of silently minting a new one.
+	tf, err := os.OpenFile(timerPath, os.O_RDWR|os.O_TRUNC, 0o644)
+	if err != nil {
+		if errors.Is(err, fs.ErrNotExist) {
+			return cron.Job{}, cron.ErrNotFound
+		}
 		return cron.Job{}, err
 	}
-	if err := os.WriteFile(timerPath, []byte(renderTimer(label, interval.Every, interval.Descriptor)), 0o644); err != nil {
+	if _, err := tf.Write([]byte(renderTimer(label, interval.Every, interval.Descriptor))); err != nil {
+		tf.Close()
+		return cron.Job{}, err
+	}
+	if err := tf.Close(); err != nil {
 		return cron.Job{}, err
 	}
 	servicePath := filepath.Join(s.Dir, label+".service")
@@ -227,21 +246,19 @@ func (s *Systemd) Delete(ctx context.Context, id string) error {
 		return fmt.Errorf("%s is read-only", s.Name())
 	}
 	timerPath := filepath.Join(s.Dir, label+".timer")
-	if _, err := os.Stat(timerPath); errors.Is(err, fs.ErrNotExist) {
-		return cron.ErrNotFound
-	} else if err != nil {
-		return err
-	}
 	if s.Systemctl != nil {
 		_, _ = s.Systemctl(ctx, []string{"stop", label + ".timer"})
 		_, _ = s.Systemctl(ctx, []string{"disable", label + ".timer"})
 	}
 	if err := os.Remove(timerPath); err != nil {
+		if errors.Is(err, fs.ErrNotExist) {
+			return cron.ErrNotFound
+		}
 		return fmt.Errorf("remove %s: %w", timerPath, err)
 	}
 	servicePath := filepath.Join(s.Dir, label+".service")
-	if _, err := os.Stat(servicePath); err == nil {
-		_ = os.Remove(servicePath)
+	if err := os.Remove(servicePath); err != nil && !errors.Is(err, fs.ErrNotExist) {
+		return fmt.Errorf("remove %s: %w", servicePath, err)
 	}
 	if s.Systemctl != nil {
 		_, _ = s.Systemctl(ctx, []string{"daemon-reload"})

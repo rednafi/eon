@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"slices"
 	"strings"
+	"sync"
 )
 
 // Manager fans calls out across multiple Sources. Construct one with
@@ -36,29 +37,49 @@ func (m *Manager) SourceNames() []string {
 	return out
 }
 
-// List aggregates jobs from every Source. Per-Source errors are returned
-// alongside the jobs that did succeed — a broken crontab parser shouldn't
-// hide healthy launchd entries.
+// List aggregates jobs from every Source. Sources are queried in
+// parallel — on macOS with six launchd directories, sequential List
+// would stack a few hundred plist reads end-to-end. Per-Source errors
+// are returned alongside the jobs that did succeed: a broken crontab
+// parser shouldn't hide healthy launchd entries.
 func (m *Manager) List(ctx context.Context) ([]Job, []error) {
+	type result struct {
+		jobs []Job
+		err  error
+	}
+	results := make([]result, len(m.sources))
+	var wg sync.WaitGroup
+	for i, s := range m.sources {
+		wg.Go(func() {
+			jobs, err := s.List(ctx)
+			if err != nil {
+				results[i] = result{err: fmt.Errorf("%s: %w", s.Name(), err)}
+				return
+			}
+			scope := s.Scope()
+			for j := range jobs {
+				// Don't clobber a Scope the Source already set; this
+				// lets test fakes return mixed-scope job sets without
+				// subclassing the Source.
+				if jobs[j].Scope == "" {
+					jobs[j].Scope = scope
+				}
+			}
+			results[i] = result{jobs: jobs}
+		})
+	}
+	wg.Wait()
+
 	var (
 		all  []Job
 		errs []error
 	)
-	for _, s := range m.sources {
-		jobs, err := s.List(ctx)
-		if err != nil {
-			errs = append(errs, fmt.Errorf("%s: %w", s.Name(), err))
+	for _, r := range results {
+		if r.err != nil {
+			errs = append(errs, r.err)
 			continue
 		}
-		scope := s.Scope()
-		for i := range jobs {
-			// Don't clobber a Scope the Source already set; this lets test
-			// fakes return mixed-scope job sets without subclassing the Source.
-			if jobs[i].Scope == "" {
-				jobs[i].Scope = scope
-			}
-		}
-		all = append(all, jobs...)
+		all = append(all, r.jobs...)
 	}
 	slices.SortFunc(all, func(a, b Job) int {
 		if c := cmp.Compare(a.Kind, b.Kind); c != 0 {

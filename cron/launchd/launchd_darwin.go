@@ -20,6 +20,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
 
 	"github.com/rednafi/eon/cron"
 )
@@ -92,7 +93,9 @@ func (l *Launchd) Scope() cron.Scope {
 }
 
 // List implements cron.Source. Missing or unreadable plists are skipped
-// silently; a partial directory shouldn't break listing.
+// silently; a partial directory shouldn't break listing. Reads run in
+// parallel with a small worker pool — /System/Library/LaunchDaemons can
+// have hundreds of plists and serial reads dominate startup.
 func (l *Launchd) List(ctx context.Context) ([]cron.Job, error) {
 	entries, err := os.ReadDir(l.Dir)
 	if err != nil {
@@ -101,21 +104,40 @@ func (l *Launchd) List(ctx context.Context) ([]cron.Job, error) {
 		}
 		return nil, fmt.Errorf("read %s: %w", l.Dir, err)
 	}
-	var jobs []cron.Job
-	// seen prevents duplicate Job.IDs when two plist files in the same
-	// directory share a <Label>. The user can fix the underlying conflict
-	// from the filesystem; the listing should at least be deterministic.
-	seen := map[string]bool{}
+	var paths []string
 	for _, e := range entries {
 		if e.IsDir() || !strings.HasSuffix(e.Name(), ".plist") {
 			continue
 		}
-		full := filepath.Join(l.Dir, e.Name())
-		j, err := l.readPlist(full)
-		if err != nil {
-			continue
-		}
-		if seen[j.ID] {
+		paths = append(paths, filepath.Join(l.Dir, e.Name()))
+	}
+	results := make([]cron.Job, len(paths))
+	ok := make([]bool, len(paths))
+	var wg sync.WaitGroup
+	sem := make(chan struct{}, 8) // bound concurrency; plist decode is CPU + I/O
+	for i, full := range paths {
+		sem <- struct{}{}
+		wg.Go(func() {
+			defer func() { <-sem }()
+			j, err := l.readPlist(full)
+			if err != nil {
+				return
+			}
+			results[i] = j
+			ok[i] = true
+		})
+	}
+	wg.Wait()
+
+	var jobs []cron.Job
+	// seen prevents duplicate Job.IDs when two plist files in the same
+	// directory share a <Label>. The user can fix the underlying
+	// conflict from the filesystem; the listing should at least be
+	// deterministic — iterating `paths` in source order keeps it that
+	// way regardless of goroutine scheduling.
+	seen := map[string]bool{}
+	for i, j := range results {
+		if !ok[i] || seen[j.ID] {
 			continue
 		}
 		seen[j.ID] = true
@@ -218,14 +240,24 @@ func (l *Launchd) Add(_ context.Context, spec cron.JobSpec) (cron.Job, error) {
 	}
 	label := launchdLabel(spec.Command)
 	path := filepath.Join(l.Dir, label+".plist")
-	if _, err := os.Stat(path); err == nil {
-		return cron.Job{}, fmt.Errorf("a plist for %q already exists at %s; use eon edit", label, path)
-	}
-	body := renderPlist(label, spec.Command, interval)
 	if err := os.MkdirAll(l.Dir, 0o755); err != nil {
 		return cron.Job{}, err
 	}
-	if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
+	body := renderPlist(label, spec.Command, interval)
+	// O_CREATE|O_EXCL: the kernel atomically refuses to clobber an
+	// existing plist, replacing the prior os.Stat-then-WriteFile race.
+	f, err := os.OpenFile(path, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o644)
+	if err != nil {
+		if errors.Is(err, fs.ErrExist) {
+			return cron.Job{}, fmt.Errorf("a plist for %q already exists at %s; use eon edit", label, path)
+		}
+		return cron.Job{}, err
+	}
+	if _, err := f.Write([]byte(body)); err != nil {
+		f.Close()
+		return cron.Job{}, err
+	}
+	if err := f.Close(); err != nil {
 		return cron.Job{}, err
 	}
 	return l.readPlist(path)
@@ -243,13 +275,21 @@ func (l *Launchd) Edit(_ context.Context, id string, spec cron.JobSpec) (cron.Jo
 		return cron.Job{}, err
 	}
 	path := filepath.Join(l.Dir, label+".plist")
-	if _, err := os.Stat(path); errors.Is(err, fs.ErrNotExist) {
-		return cron.Job{}, cron.ErrNotFound
-	} else if err != nil {
+	body := renderPlist(label, spec.Command, interval)
+	// O_RDWR|O_TRUNC without O_CREATE refuses to mint a new file —
+	// matches the prior os.Stat-then-WriteFile in one atomic step.
+	f, err := os.OpenFile(path, os.O_RDWR|os.O_TRUNC, 0o644)
+	if err != nil {
+		if errors.Is(err, fs.ErrNotExist) {
+			return cron.Job{}, cron.ErrNotFound
+		}
 		return cron.Job{}, err
 	}
-	body := renderPlist(label, spec.Command, interval)
-	if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
+	if _, err := f.Write([]byte(body)); err != nil {
+		f.Close()
+		return cron.Job{}, err
+	}
+	if err := f.Close(); err != nil {
 		return cron.Job{}, err
 	}
 	return l.readPlist(path)
@@ -265,20 +305,11 @@ func (l *Launchd) Delete(ctx context.Context, id string) error {
 		return fmt.Errorf("%s is read-only", l.Name())
 	}
 	path := filepath.Join(l.Dir, label+".plist")
-	if _, err := os.Stat(path); errors.Is(err, fs.ErrNotExist) {
-		return cron.ErrNotFound
-	} else if err != nil {
-		return err
-	}
 	// Best-effort unload: ignore failure (the agent may not be loaded).
 	if l.Runner != nil {
 		_, _ = l.Runner(ctx, []string{"unload", path})
 	}
 	if err := os.Remove(path); err != nil {
-		// Race with another deletion: between Stat and Remove the file
-		// was removed by something else. Treat the same way as if Stat
-		// had originally returned NotExist — the desired end-state
-		// already holds.
 		if errors.Is(err, fs.ErrNotExist) {
 			return cron.ErrNotFound
 		}
