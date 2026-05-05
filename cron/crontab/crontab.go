@@ -76,10 +76,14 @@ func (c *Crontab) List(ctx context.Context) ([]cron.Job, error) {
 	if err != nil {
 		return nil, err
 	}
-	return c.parse(string(out)), nil
+	jobs, perr := c.parse(string(out))
+	if perr != nil {
+		return jobs, perr
+	}
+	return jobs, nil
 }
 
-func (c *Crontab) parse(content string) []cron.Job {
+func (c *Crontab) parse(content string) ([]cron.Job, error) {
 	var jobs []cron.Job
 	scanner := bufio.NewScanner(strings.NewReader(content))
 	scanner.Buffer(make([]byte, 1024*1024), 1024*1024)
@@ -108,7 +112,10 @@ func (c *Crontab) parse(content string) []cron.Job {
 		}
 		jobs = append(jobs, j)
 	}
-	return jobs
+	// Surface scanner errors (e.g. bufio.ErrTooLong on lines > 1MB) so we
+	// don't silently truncate the output. Callers receive whatever jobs
+	// did parse plus the error.
+	return jobs, scanner.Err()
 }
 
 // Add implements cron.Mutator. The new line is appended to the user's
@@ -131,7 +138,7 @@ func (c *Crontab) Add(ctx context.Context, spec cron.JobSpec) (cron.Job, error) 
 	if _, err := c.Runner(ctx, []string{"-"}, body); err != nil {
 		return cron.Job{}, err
 	}
-	jobs := c.parse(line + "\n")
+	jobs, _ := c.parse(line + "\n")
 	if len(jobs) == 0 {
 		return cron.Job{}, fmt.Errorf("crontab accepted line but reparse failed: %q", line)
 	}
@@ -177,7 +184,7 @@ func (c *Crontab) Edit(ctx context.Context, id string, spec cron.JobSpec) (cron.
 	if _, err := c.Runner(ctx, []string{"-"}, replacement); err != nil {
 		return cron.Job{}, err
 	}
-	jobs := c.parse(newLine + "\n")
+	jobs, _ := c.parse(newLine + "\n")
 	if len(jobs) == 0 {
 		return cron.Job{}, fmt.Errorf("crontab accepted line but reparse failed: %q", newLine)
 	}

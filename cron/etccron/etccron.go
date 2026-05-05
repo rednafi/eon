@@ -58,10 +58,13 @@ func (e *EtcCron) Scope() cron.Scope { return cron.ScopeSystem }
 
 // List implements cron.Source. Errors reading individual files are tolerated —
 // surfacing the readable ones is more useful than failing the whole list.
+// A scanner-level error from any single file is also tolerated: we keep
+// the partial Jobs from that file and move on.
 func (e *EtcCron) List(_ context.Context) ([]cron.Job, error) {
 	var jobs []cron.Job
 	if data, err := os.ReadFile(e.MainPath); err == nil {
-		jobs = append(jobs, e.parseFile(e.MainPath, data, "main")...)
+		got, _ := e.parseFile(e.MainPath, data, "main")
+		jobs = append(jobs, got...)
 	}
 	if entries, err := os.ReadDir(e.DropInDir); err == nil {
 		for _, ent := range entries {
@@ -76,7 +79,8 @@ func (e *EtcCron) List(_ context.Context) ([]cron.Job, error) {
 			}
 			full := filepath.Join(e.DropInDir, ent.Name())
 			if data, err := os.ReadFile(full); err == nil {
-				jobs = append(jobs, e.parseFile(full, data, ent.Name())...)
+				got, _ := e.parseFile(full, data, ent.Name())
+				jobs = append(jobs, got...)
 			}
 		}
 	}
@@ -100,7 +104,7 @@ func (e *EtcCron) Delete(_ context.Context, _ string) error {
 // remove it.
 const utf8BOM = "\uFEFF"
 
-func (e *EtcCron) parseFile(path string, data []byte, group string) []cron.Job {
+func (e *EtcCron) parseFile(path string, data []byte, group string) ([]cron.Job, error) {
 	var jobs []cron.Job
 	scanner := bufio.NewScanner(strings.NewReader(string(data)))
 	scanner.Buffer(make([]byte, 1024*1024), 1024*1024)
@@ -135,7 +139,7 @@ func (e *EtcCron) parseFile(path string, data []byte, group string) []cron.Job {
 		}
 		jobs = append(jobs, j)
 	}
-	return jobs
+	return jobs, scanner.Err()
 }
 
 // splitEtcCrontabLine pulls schedule | user | command out of a six-field

@@ -283,9 +283,18 @@ func ShortHash(s string) string {
 // CommandShortName returns a readable label for a shell command: the
 // basename of the first non-assignment token. Sources use it to populate
 // Job.Name when no native label exists (crontab lines, cron.d entries).
+//
+// A trailing slash on the path (e.g. "/usr/local/bin/") would slice past
+// the end of the string in a naive LastIndex implementation; we trim it
+// first so the label falls back to the parent segment ("bin") rather than
+// the empty string.
 func CommandShortName(cmd string) string {
 	for tok := range strings.FieldsSeq(cmd) {
 		if strings.Contains(tok, "=") {
+			continue
+		}
+		tok = strings.TrimRight(tok, "/")
+		if tok == "" {
 			continue
 		}
 		if i := strings.LastIndex(tok, "/"); i >= 0 {

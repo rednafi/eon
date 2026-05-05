@@ -293,6 +293,35 @@ func TestSystemdReadOnlyRejectsAddAndEdit(t *testing.T) {
 	}
 }
 
+// readTimer must surface "+N more" when a timer has multiple OnCalendar=
+// lines. The previous flat parser would silently keep the last one and
+// the user would never know the unit had additional triggers.
+func TestSystemdMultipleOnCalendarSurfacesCount(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	body := `[Unit]
+Description=Multi
+[Timer]
+OnCalendar=hourly
+OnCalendar=daily
+OnCalendar=Mon *-*-* 09:00:00
+`
+	if err := os.WriteFile(filepath.Join(dir, "multi.timer"), []byte(body), 0o600); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	src := &Systemd{Dir: dir, Tag: "test"}
+	jobs, err := src.List(t.Context())
+	if err != nil {
+		t.Fatalf("list: %v", err)
+	}
+	if len(jobs) != 1 {
+		t.Fatalf("want 1 job, got %d", len(jobs))
+	}
+	if !strings.Contains(jobs[0].Schedule, "+2 more") {
+		t.Errorf("expected '+2 more' in schedule, got %q", jobs[0].Schedule)
+	}
+}
+
 func TestSystemdNameAndScope(t *testing.T) {
 	t.Parallel()
 	user := &Systemd{Tag: "user"}

@@ -146,6 +146,20 @@ func TestSplitCrontabLine(t *testing.T) {
 	}
 }
 
+// A line longer than the scanner's 1MB buffer used to be silently
+// dropped. parse() now propagates the bufio error so the caller can show
+// "your crontab was truncated" instead of returning a partial list.
+func TestCrontabParseSurfacesScannerError(t *testing.T) {
+	t.Parallel()
+	c := New()
+	jobs, err := c.parse(strings.Repeat("a", 2*1024*1024) + "\n")
+	if err == nil {
+		t.Errorf("expected scanner error on a >1MB line, got nil")
+	}
+	// Any jobs that did parse before the failure should still be returned.
+	_ = jobs
+}
+
 // crontab files written by editors that default to UTF-8-with-BOM (Notepad,
 // some Windows tools) shouldn't break parsing. The BOM survives TrimSpace,
 // so we strip it explicitly in splitCrontabLine.
@@ -515,7 +529,7 @@ func FuzzCrontabParse(f *testing.F) {
 	}
 	c := New()
 	f.Fuzz(func(t *testing.T, content string) {
-		jobs := c.parse(content)
+		jobs, _ := c.parse(content)
 		for _, j := range jobs {
 			if !strings.HasPrefix(j.ID, "crontab:") {
 				t.Errorf("malformed ID: %q (input %q)", j.ID, content)

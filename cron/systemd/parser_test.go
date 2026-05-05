@@ -148,6 +148,30 @@ func FuzzParseUnit(f *testing.F) {
 	})
 }
 
+// parseUnitMulti must collect every value for a repeated key in source
+// order. systemd allows multiple OnCalendar= lines; the renderer needs
+// the count so the user sees "+N more" rather than just the last one.
+func TestParseUnitMultiCollectsRepeatedKeys(t *testing.T) {
+	t.Parallel()
+	got, err := parseUnitMulti(`[Timer]
+OnCalendar=hourly
+OnCalendar=daily
+OnCalendar=Mon
+`)
+	if err != nil {
+		t.Fatalf("parseUnitMulti: %v", err)
+	}
+	vs := got["Timer.OnCalendar"]
+	if len(vs) != 3 {
+		t.Fatalf("want 3 OnCalendar values, got %d: %v", len(vs), vs)
+	}
+	for i, want := range []string{"hourly", "daily", "Mon"} {
+		if vs[i] != want {
+			t.Errorf("position %d = %q, want %q", i, vs[i], want)
+		}
+	}
+}
+
 // systemd unit files saved by editors that prepend a UTF-8 BOM
 // (U+FEFF) must still parse — the BOM shouldn't bleed into the section
 // name or first key.

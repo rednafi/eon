@@ -305,6 +305,9 @@ func TestCommandShortNameSkipsEnvAssignments(t *testing.T) {
 		{"", ""},
 		{"   ", "   "},
 		{"singleword", "singleword"},
+		{"/usr/local/bin/", "bin"},  // trailing-slash fallback
+		{"/usr/local/bin//", "bin"}, // multi-slash trailing
+		{"/", "/"},                  // pathological: only slash
 	}
 	for _, tc := range cases {
 		if got := CommandShortName(tc.in); got != tc.want {

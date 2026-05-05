@@ -104,7 +104,7 @@ func (s *Systemd) readTimer(path string) (cron.Job, error) {
 	if err != nil {
 		return cron.Job{}, err
 	}
-	timer := parseUnit(string(raw))
+	timer, _ := parseUnitMulti(string(raw))
 	label := strings.TrimSuffix(filepath.Base(path), ".timer")
 	servicePath := strings.TrimSuffix(path, ".timer") + ".service"
 	command := ""
@@ -113,12 +113,28 @@ func (s *Systemd) readTimer(path string) (cron.Job, error) {
 		command = svc["Service.ExecStart"]
 	}
 	command = cmp.Or(command, "(systemd unit: "+label+")")
+	// firstOf returns the first non-empty entry from the slice (or "").
+	// Used when a key is multi-valued in parseUnitMulti but the renderer
+	// only displays one — we still want a deterministic choice.
+	firstOf := func(vs []string) string {
+		if len(vs) > 0 {
+			return vs[0]
+		}
+		return ""
+	}
 	schedule := cmp.Or(
-		timer["Timer.OnCalendar"],
-		prefixed("every ", timer["Timer.OnUnitActiveSec"]),
-		prefixed("boot+", timer["Timer.OnBootSec"]),
+		firstOf(timer["Timer.OnCalendar"]),
+		prefixed("every ", firstOf(timer["Timer.OnUnitActiveSec"])),
+		prefixed("boot+", firstOf(timer["Timer.OnBootSec"])),
 		"(no schedule)",
 	)
+	// Surface the additional triggers that systemd accepts but the column
+	// can't show — otherwise the user sees "daily" and assumes that's the
+	// only fire, even though the unit may have OnCalendar=daily plus
+	// OnCalendar=hourly.
+	if extras := len(timer["Timer.OnCalendar"]) - 1; extras > 0 {
+		schedule = fmt.Sprintf("%s (+%d more)", schedule, extras)
+	}
 	return cron.Job{
 		ID:       "systemd-" + s.Tag + ":" + label,
 		Kind:     cron.KindSystemd,

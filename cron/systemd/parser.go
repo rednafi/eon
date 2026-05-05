@@ -17,8 +17,29 @@ const utf8BOM = "\uFEFF"
 // parseUnit reads a systemd unit file into a flat map keyed by "Section.Key".
 // Multi-line values and continuations aren't supported — eon doesn't need
 // them, and ignoring them keeps the parser tiny and predictable.
+//
+// When the same key appears more than once in the same section (e.g.
+// systemd allows multiple OnCalendar= lines, each adding a trigger), the
+// last write wins in the returned map. Use parseUnitMulti when callers
+// need to know how many copies appeared.
 func parseUnit(content string) map[string]string {
-	out := map[string]string{}
+	flat, _ := parseUnitMulti(content)
+	out := make(map[string]string, len(flat))
+	for k, v := range flat {
+		if len(v) > 0 {
+			out[k] = v[len(v)-1]
+		}
+	}
+	return out
+}
+
+// parseUnitMulti is the multi-valued sibling of parseUnit. Each key maps
+// to the slice of values seen, in source order. The second return value
+// is any scanner error (typically bufio.ErrTooLong on lines > 1MB) so
+// callers can surface "your unit file was truncated" instead of silently
+// returning a partial parse.
+func parseUnitMulti(content string) (map[string][]string, error) {
+	out := map[string][]string{}
 	scanner := bufio.NewScanner(strings.NewReader(content))
 	scanner.Buffer(make([]byte, 1024*1024), 1024*1024)
 	section := ""
@@ -34,10 +55,11 @@ func parseUnit(content string) map[string]string {
 		if i := strings.Index(line, "="); i > 0 {
 			k := strings.TrimSpace(line[:i])
 			v := strings.TrimSpace(line[i+1:])
-			out[section+"."+k] = v
+			key := section + "." + k
+			out[key] = append(out[key], v)
 		}
 	}
-	return out
+	return out, scanner.Err()
 }
 
 // prefixed returns p+s when s is non-empty, "" otherwise. Lets cmp.Or
