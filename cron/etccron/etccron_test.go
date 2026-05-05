@@ -292,7 +292,7 @@ func FuzzEtcCronParseFile(f *testing.F) {
 	}
 	src := New()
 	f.Fuzz(func(t *testing.T, content string) {
-		jobs, _ := src.parseFile("/synthetic", []byte(content), "fuzz")
+		jobs, _ := parseEtcCrontab(src.parser, "/synthetic", []byte(content), "fuzz")
 		for _, j := range jobs {
 			if !strings.HasPrefix(j.ID, "crontab-system:") {
 				t.Errorf("malformed ID: %q (input %q)", j.ID, content)
