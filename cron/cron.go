@@ -6,6 +6,7 @@
 package cron
 
 import (
+	"bufio"
 	"cmp"
 	"context"
 	"crypto/sha1"
@@ -281,6 +282,18 @@ func (m *Manager) Delete(ctx context.Context, id string) error {
 func ShortHash(s string) string {
 	sum := sha1.Sum([]byte(s))
 	return hex.EncodeToString(sum[:4])
+}
+
+// LineScanner returns a bufio.Scanner over s with the buffer pre-sized to
+// 1 MB. Every backend's parser tokenises configuration files line-by-line
+// and the default 64 KB buffer truncates pathological-but-real entries
+// (long PATH= preludes in /etc/crontab, multi-arg ProgramArguments). One
+// helper means one place to bump the cap.
+func LineScanner(s string) *bufio.Scanner {
+	const maxLine = 1 << 20
+	scanner := bufio.NewScanner(strings.NewReader(s))
+	scanner.Buffer(make([]byte, maxLine), maxLine)
+	return scanner
 }
 
 // CommandShortName returns a readable label for a shell command: the

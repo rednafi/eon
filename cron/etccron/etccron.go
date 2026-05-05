@@ -5,7 +5,6 @@
 package etccron
 
 import (
-	"bufio"
 	"cmp"
 	"context"
 	"fmt"
@@ -106,8 +105,7 @@ const utf8BOM = "\uFEFF"
 
 func (e *EtcCron) parseFile(path string, data []byte, group string) ([]cron.Job, error) {
 	var jobs []cron.Job
-	scanner := bufio.NewScanner(strings.NewReader(string(data)))
-	scanner.Buffer(make([]byte, 1024*1024), 1024*1024)
+	scanner := cron.LineScanner(string(data))
 	for scanner.Scan() {
 		line := scanner.Text()
 		trimmed := strings.TrimSpace(strings.TrimPrefix(line, utf8BOM))

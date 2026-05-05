@@ -3,7 +3,6 @@
 package crontab
 
 import (
-	"bufio"
 	"context"
 	"fmt"
 	"os/exec"
@@ -85,8 +84,7 @@ func (c *Crontab) List(ctx context.Context) ([]cron.Job, error) {
 
 func (c *Crontab) parse(content string) ([]cron.Job, error) {
 	var jobs []cron.Job
-	scanner := bufio.NewScanner(strings.NewReader(content))
-	scanner.Buffer(make([]byte, 1024*1024), 1024*1024)
+	scanner := cron.LineScanner(content)
 	for scanner.Scan() {
 		line := scanner.Text()
 		trimmed := strings.TrimSpace(line)
@@ -165,8 +163,7 @@ func (c *Crontab) Edit(ctx context.Context, id string, spec cron.JobSpec) (cron.
 		kept    []string
 		matched bool
 	)
-	scanner := bufio.NewScanner(strings.NewReader(string(out)))
-	scanner.Buffer(make([]byte, 1024*1024), 1024*1024)
+	scanner := cron.LineScanner(string(out))
 	for scanner.Scan() {
 		line := scanner.Text()
 		trimmed := strings.TrimSpace(line)
@@ -225,8 +222,7 @@ func (c *Crontab) Delete(ctx context.Context, id string) error {
 		kept    []string
 		matched bool
 	)
-	scanner := bufio.NewScanner(strings.NewReader(string(out)))
-	scanner.Buffer(make([]byte, 1024*1024), 1024*1024)
+	scanner := cron.LineScanner(string(out))
 	for scanner.Scan() {
 		line := scanner.Text()
 		trimmed := strings.TrimSpace(line)

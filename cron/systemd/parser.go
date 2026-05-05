@@ -5,7 +5,6 @@
 package systemd
 
 import (
-	"bufio"
 	"fmt"
 	"strings"
 	"time"
@@ -44,8 +43,7 @@ func parseUnit(content string) map[string]string {
 // returning a partial parse.
 func parseUnitMulti(content string) (map[string][]string, error) {
 	out := map[string][]string{}
-	scanner := bufio.NewScanner(strings.NewReader(content))
-	scanner.Buffer(make([]byte, 1024*1024), 1024*1024)
+	scanner := cron.LineScanner(content)
 	section := ""
 	for scanner.Scan() {
 		line := strings.TrimSpace(strings.TrimPrefix(scanner.Text(), utf8BOM))
