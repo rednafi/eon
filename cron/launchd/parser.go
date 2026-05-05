@@ -7,7 +7,6 @@ package launchd
 import (
 	"bytes"
 	"cmp"
-	"encoding/xml"
 	"fmt"
 	"path/filepath"
 	"strconv"
@@ -191,48 +190,40 @@ func launchdLabel(command string) string {
 	return "eon." + short
 }
 
+// plistOut is the encoder-side counterpart to plistDoc — only the keys
+// eon writes when materialising a new plist. Defined separately from
+// plistDoc so we don't have to put `omitempty` on every decoder field
+// (which would change decoder semantics).
+type plistOut struct {
+	Label            string   `plist:"Label"`
+	ProgramArguments []string `plist:"ProgramArguments"`
+	StartInterval    int      `plist:"StartInterval"`
+}
+
 // renderPlist generates a minimal launchd plist (label, program
 // arguments, schedule). We split the command on whitespace for
-// ProgramArguments — preserves quoting only as well as Fields() does, but
-// launchd doesn't honour shell quoting anyway, so a power user wanting
-// `bash -c '...'` is expected to author the plist by hand. Every
-// user-supplied string flows through xml.EscapeText so a label containing
-// `&`, `<`, etc. doesn't corrupt the file.
+// ProgramArguments — preserves quoting only as well as Fields() does,
+// but launchd doesn't honour shell quoting anyway, so a power user
+// wanting `bash -c '...'` is expected to author the plist by hand.
+//
+// Marshalling goes through howett.net/plist's encoder so XML escaping,
+// DOCTYPE, and indentation all match what the decoder accepts on the
+// other end — no hand-written XML to drift.
 func renderPlist(label, command string, interval cron.ScheduleInterval) string {
-	args := strings.Fields(command)
-	var b strings.Builder
-	b.WriteString(`<?xml version="1.0" encoding="UTF-8"?>` + "\n")
-	b.WriteString(`<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">` + "\n")
-	b.WriteString(`<plist version="1.0"><dict>` + "\n")
-	b.WriteString("<key>Label</key><string>")
-	xmlEscape(&b, label)
-	b.WriteString("</string>\n")
-	b.WriteString("<key>ProgramArguments</key><array>\n")
-	for _, a := range args {
-		b.WriteString("  <string>")
-		xmlEscape(&b, a)
-		b.WriteString("</string>\n")
+	out := plistOut{
+		Label:            label,
+		ProgramArguments: strings.Fields(command),
+		StartInterval:    intervalSeconds(interval),
 	}
-	b.WriteString("</array>\n")
-	seconds := intervalSeconds(interval)
-	fmt.Fprintf(&b, "<key>StartInterval</key><integer>%d</integer>\n", seconds)
-	b.WriteString("</dict></plist>\n")
-	return b.String()
+	body, err := plist.MarshalIndent(&out, plist.XMLFormat, "  ")
+	if err != nil {
+		// The encoder only fails on unrepresentable types — and our
+		// shape is plain strings/ints. A failure here is a bug in the
+		// library, not in the input.
+		panic(fmt.Sprintf("encode plist: %v", err))
+	}
+	return string(body) + "\n"
 }
-
-// xmlEscape writes s to b with `<`, `>`, `&`, `'`, `"` escaped per XML
-// 1.0 rules. We use the stdlib helper rather than rolling our own so a
-// new XML 1.1 quirk doesn't leak through silently.
-func xmlEscape(b *strings.Builder, s string) {
-	_ = xml.EscapeText(stringWriter{b}, []byte(s))
-}
-
-// stringWriter adapts strings.Builder to io.Writer so xml.EscapeText
-// (which needs an io.Writer) can target it without an intermediate
-// buffer.
-type stringWriter struct{ *strings.Builder }
-
-func (w stringWriter) Write(p []byte) (int, error) { return w.Builder.Write(p) }
 
 // intervalSeconds collapses ScheduleInterval into seconds for
 // StartInterval. launchd's StartInterval is the only schedule key that's

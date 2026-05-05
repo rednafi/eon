@@ -122,14 +122,17 @@ func TestParseUnitTrimsSurroundingWhitespace(t *testing.T) {
 	}
 }
 
-// Keys outside any section land in the empty section. systemd would reject
-// such a unit, but the parser shouldn't crash — and using the unit map
-// keyed under "." lets a caller spot the malformed file by inspection.
+// Keys outside any section are dropped. Real systemd rejects such files
+// too — coreos/go-systemd's parser matches that behaviour. The parser
+// must continue to return any valid sections that follow.
 func TestParseUnitOutsideAnySection(t *testing.T) {
 	t.Parallel()
 	got := parseUnit("Orphan=true\n[Service]\nExecStart=/bin/foo\n")
-	if got[".Orphan"] != "true" {
-		t.Errorf("orphan key not preserved under empty section: %v", got)
+	if got["Service.ExecStart"] != "/bin/foo" {
+		t.Errorf("valid section after orphan was lost: %v", got)
+	}
+	if _, ok := got[".Orphan"]; ok {
+		t.Errorf("orphan key should be dropped, got %v", got)
 	}
 }
 
