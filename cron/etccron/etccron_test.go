@@ -272,10 +272,19 @@ func FuzzSplitEtcCrontabLine(f *testing.F) {
 		f.Add(seed)
 	}
 	f.Fuzz(func(t *testing.T, line string) {
-		if strings.ContainsRune(line, 0) {
-			t.Skip()
+		schedule, user, command, ok := splitEtcCrontabLine(line)
+		if !ok {
+			return
 		}
-		_, _, _, _ = splitEtcCrontabLine(line)
+		if strings.TrimSpace(schedule) == "" {
+			t.Errorf("ok=true but schedule blank: %q", line)
+		}
+		if strings.TrimSpace(user) == "" {
+			t.Errorf("ok=true but user blank: %q", line)
+		}
+		if strings.TrimSpace(command) == "" {
+			t.Errorf("ok=true but command blank: %q", line)
+		}
 	})
 }
 
@@ -294,8 +303,16 @@ func FuzzEtcCronParseFile(f *testing.F) {
 	f.Fuzz(func(t *testing.T, content string) {
 		jobs, _ := parseEtcCrontab(src.parser, "/synthetic", []byte(content), "fuzz")
 		for _, j := range jobs {
-			if !strings.HasPrefix(j.ID, "crontab-system:") {
+			if !strings.HasPrefix(j.ID, "crontab-system:") || len(j.ID) != len("crontab-system:")+8 {
 				t.Errorf("malformed ID: %q (input %q)", j.ID, content)
+			}
+			if !strings.HasPrefix(j.Name, "fuzz:") {
+				t.Errorf("Name should be group-prefixed, got %q", j.Name)
+			}
+			// The Command column embeds the user as "[user] cmd" so the
+			// list view shows who owns the entry.
+			if !strings.HasPrefix(j.Command, "[") || !strings.Contains(j.Command, "] ") {
+				t.Errorf("Command lacks [user] prefix: %q", j.Command)
 			}
 		}
 	})

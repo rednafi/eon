@@ -133,9 +133,11 @@ func TestParseUnitOutsideAnySection(t *testing.T) {
 	}
 }
 
-// FuzzParseUnit asserts the unit parser is total. Surface-area is small
-// (it only cares about line-shape) but it's invoked on user-controlled
-// content (drop-in service files), so worth fuzzing.
+// FuzzParseUnit asserts the unit parser is total AND consistent with its
+// multi-valued sibling: parseUnit returns the LAST value seen for each
+// key, which must equal the last entry of parseUnitMulti's slice. If
+// these diverge, schedule rendering and Edit could disagree about which
+// of multiple OnCalendar= triggers wins.
 func FuzzParseUnit(f *testing.F) {
 	for _, seed := range []string{
 		"",
@@ -146,11 +148,22 @@ func FuzzParseUnit(f *testing.F) {
 		"=novalue\n",
 		"[no-close-bracket\n",
 		"section]without-open\n",
+		"[Timer]\nOnCalendar=hourly\nOnCalendar=daily\n",
 	} {
 		f.Add(seed)
 	}
 	f.Fuzz(func(t *testing.T, content string) {
-		_ = parseUnit(content) // must not panic
+		flat := parseUnit(content)
+		multi, _ := parseUnitMulti(content)
+		if len(flat) != len(multi) {
+			t.Errorf("flat=%d multi=%d for input %q", len(flat), len(multi), content)
+		}
+		for k, v := range flat {
+			vs := multi[k]
+			if len(vs) == 0 || vs[len(vs)-1] != v {
+				t.Errorf("flat[%q]=%q but multi=%v", k, v, vs)
+			}
+		}
 	})
 }
 
