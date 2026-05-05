@@ -206,7 +206,7 @@ func TestValidateSpec(t *testing.T) {
 		{"command with CR", cron.JobSpec{Schedule: "@hourly", Command: "/bin/x\rbad"}, true},
 	}
 	for _, tc := range cases {
-		err := validateSpec(tc.spec)
+		err := cron.ValidateSpec(tc.spec)
 		if tc.fail && err == nil {
 			t.Errorf("%s: expected error", tc.name)
 		}

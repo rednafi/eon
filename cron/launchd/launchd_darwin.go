@@ -348,7 +348,7 @@ func (l *Launchd) Add(_ context.Context, spec cron.JobSpec) (cron.Job, error) {
 	if l.ReadOnly {
 		return cron.Job{}, fmt.Errorf("%s is read-only", l.Name())
 	}
-	if err := validateSpec(spec); err != nil {
+	if err := cron.ValidateSpec(spec); err != nil {
 		return cron.Job{}, err
 	}
 	interval, err := cron.ParseScheduleInterval(spec.Schedule)
@@ -380,7 +380,7 @@ func (l *Launchd) Edit(_ context.Context, id string, spec cron.JobSpec) (cron.Jo
 	if l.ReadOnly {
 		return cron.Job{}, fmt.Errorf("%s is read-only", l.Name())
 	}
-	if err := validateSpec(spec); err != nil {
+	if err := cron.ValidateSpec(spec); err != nil {
 		return cron.Job{}, err
 	}
 	interval, err := cron.ParseScheduleInterval(spec.Schedule)
@@ -398,22 +398,6 @@ func (l *Launchd) Edit(_ context.Context, id string, spec cron.JobSpec) (cron.Jo
 		return cron.Job{}, err
 	}
 	return l.readPlist(path)
-}
-
-// validateSpec catches obviously-broken inputs before we touch disk.
-// launchd would silently load a plist with an empty Command field —
-// which is a worse failure mode than a noisy error.
-func validateSpec(spec cron.JobSpec) error {
-	if strings.TrimSpace(spec.Schedule) == "" {
-		return fmt.Errorf("schedule must not be empty")
-	}
-	if strings.TrimSpace(spec.Command) == "" {
-		return fmt.Errorf("command must not be empty")
-	}
-	if strings.ContainsAny(spec.Command, "\r\n") {
-		return fmt.Errorf("command must not contain newlines")
-	}
-	return nil
 }
 
 // launchdLabel derives a reverse-DNS-ish label from a command. Real users

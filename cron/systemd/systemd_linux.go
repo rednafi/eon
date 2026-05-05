@@ -156,7 +156,7 @@ func (s *Systemd) Add(ctx context.Context, spec cron.JobSpec) (cron.Job, error) 
 	if s.ReadOnly {
 		return cron.Job{}, fmt.Errorf("%s is read-only", s.Name())
 	}
-	if err := validateSpec(spec); err != nil {
+	if err := cron.ValidateSpec(spec); err != nil {
 		return cron.Job{}, err
 	}
 	interval, err := cron.ParseScheduleInterval(spec.Schedule)
@@ -196,7 +196,7 @@ func (s *Systemd) Edit(ctx context.Context, id string, spec cron.JobSpec) (cron.
 	if s.ReadOnly {
 		return cron.Job{}, fmt.Errorf("%s is read-only", s.Name())
 	}
-	if err := validateSpec(spec); err != nil {
+	if err := cron.ValidateSpec(spec); err != nil {
 		return cron.Job{}, err
 	}
 	interval, err := cron.ParseScheduleInterval(spec.Schedule)

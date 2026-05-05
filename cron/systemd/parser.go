@@ -75,18 +75,6 @@ func prefixed(p, s string) string {
 
 // validateSpec rejects obviously-broken inputs before the imperative
 // shell touches disk. Pure — testable on every platform.
-func validateSpec(spec cron.JobSpec) error {
-	if strings.TrimSpace(spec.Schedule) == "" {
-		return fmt.Errorf("schedule must not be empty")
-	}
-	if strings.TrimSpace(spec.Command) == "" {
-		return fmt.Errorf("command must not be empty")
-	}
-	if strings.ContainsAny(spec.Command, "\r\n") {
-		return fmt.Errorf("command must not contain newlines")
-	}
-	return nil
-}
 
 // systemdLabel derives a label from a command, prefixed with "eon-" so the
 // source of an eon-created unit is obvious in `systemctl list-timers`.

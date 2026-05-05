@@ -6,6 +6,24 @@ import (
 	"time"
 )
 
+// ValidateSpec catches the obvious nonsense every backend rejects: empty
+// schedule or command, embedded newlines in the command (which would
+// silently corrupt a crontab line or a launchd plist body). Backends layer
+// their own checks on top — crontab parses the schedule, launchd checks
+// label uniqueness — but they all start here.
+func ValidateSpec(spec JobSpec) error {
+	if strings.TrimSpace(spec.Schedule) == "" {
+		return fmt.Errorf("schedule must not be empty")
+	}
+	if strings.TrimSpace(spec.Command) == "" {
+		return fmt.Errorf("command must not be empty")
+	}
+	if strings.ContainsAny(spec.Command, "\r\n") {
+		return fmt.Errorf("command must not contain newlines")
+	}
+	return nil
+}
+
 // ScheduleInterval is the portable view of a JobSpec.Schedule for backends
 // that don't natively speak 5-field cron (launchd, systemd).
 //

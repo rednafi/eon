@@ -188,18 +188,13 @@ func (c *Crontab) Edit(ctx context.Context, id string, spec cron.JobSpec) (cron.
 	return jobs[0], nil
 }
 
-// validateSpec rejects empty fields and unparseable schedules. Sources
-// must catch this *before* writing — silently accepting a bad spec is
-// worse than failing fast.
+// validateSpec rejects empty fields and unparseable schedules. Layers on
+// top of the shared cron.ValidateSpec with a real cron-expression parse so
+// we don't write a malformed crontab line and only learn about it the next
+// time the cron daemon reloads.
 func validateSpec(p cronspec.Parser, spec cron.JobSpec) error {
-	if strings.TrimSpace(spec.Schedule) == "" {
-		return fmt.Errorf("schedule must not be empty")
-	}
-	if strings.TrimSpace(spec.Command) == "" {
-		return fmt.Errorf("command must not be empty")
-	}
-	if strings.ContainsAny(spec.Command, "\r\n") {
-		return fmt.Errorf("command must not contain newlines")
+	if err := cron.ValidateSpec(spec); err != nil {
+		return err
 	}
 	if _, err := p.Parse(strings.TrimSpace(spec.Schedule)); err != nil {
 		return fmt.Errorf("invalid schedule %q: %w", spec.Schedule, err)
