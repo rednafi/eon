@@ -32,7 +32,7 @@ func ValidateSpec(spec JobSpec) error {
 // paths are uniform.
 func PrepareIntervalSpec(s Source, spec JobSpec) (ScheduleInterval, error) {
 	if s.Scope() == ScopeSystem {
-		return ScheduleInterval{}, fmt.Errorf("%s is read-only", s.Name())
+		return ScheduleInterval{}, fmt.Errorf("%s: %w", s.Name(), ErrReadOnly)
 	}
 	if err := ValidateSpec(spec); err != nil {
 		return ScheduleInterval{}, err

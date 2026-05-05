@@ -243,7 +243,7 @@ func (s *Systemd) Delete(ctx context.Context, id string) error {
 		return cron.ErrNotFound
 	}
 	if s.ReadOnly {
-		return fmt.Errorf("%s is read-only", s.Name())
+		return fmt.Errorf("%s: %w", s.Name(), cron.ErrReadOnly)
 	}
 	timerPath := filepath.Join(s.Dir, label+".timer")
 	if s.Systemctl != nil {

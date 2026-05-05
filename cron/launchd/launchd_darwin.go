@@ -309,7 +309,7 @@ func (l *Launchd) Delete(ctx context.Context, id string) error {
 		return cron.ErrNotFound
 	}
 	if l.ReadOnly {
-		return fmt.Errorf("%s is read-only", l.Name())
+		return fmt.Errorf("%s: %w", l.Name(), cron.ErrReadOnly)
 	}
 	path := filepath.Join(l.Dir, label+".plist")
 	// Best-effort unload: ignore failure (the agent may not be loaded).
