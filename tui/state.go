@@ -4,6 +4,7 @@ import (
 	"strings"
 
 	"charm.land/bubbles/v2/viewport"
+	tea "charm.land/bubbletea/v2"
 
 	"github.com/rednafi/eon/cron"
 )
@@ -67,6 +68,58 @@ func (m *Model) recomputeFilter() {
 func (m *Model) recomputeColWidths() {
 	_, _, contentWidth := m.bodyDims()
 	m.colWidths = computeColumnWidths(m.jobs, contentWidth)
+}
+
+// openAddForm transitions into the add modal with empty inputs and the
+// schedule field focused. It returns the model + the focus tea.Cmd so the
+// textinput can blink the cursor on its first frame.
+func (m Model) openAddForm() (tea.Model, tea.Cmd) {
+	m.view = viewForm
+	m.formMode = formAdd
+	m.formError = ""
+	m.formFocus = 0
+	m.formSchedule.SetValue("")
+	m.formCommand.SetValue("")
+	cmd := m.formSchedule.Focus()
+	m.formCommand.Blur()
+	return m, cmd
+}
+
+// openEditForm transitions into the edit modal with the current row's
+// schedule and command pre-filled. System-scope rows go to the read-only
+// modal — same gate as Delete uses.
+func (m Model) openEditForm() (tea.Model, tea.Cmd) {
+	j, ok := m.currentJob()
+	if !ok {
+		return m, nil
+	}
+	if j.Scope == cron.ScopeSystem {
+		m.selectedJob = j
+		m.view = viewReadOnly
+		return m, nil
+	}
+	m.selectedJob = j
+	m.view = viewForm
+	m.formMode = formEdit
+	m.formError = ""
+	m.formFocus = 0
+	m.formSchedule.SetValue(j.Schedule)
+	m.formCommand.SetValue(j.Command)
+	cmd := m.formSchedule.Focus()
+	m.formCommand.Blur()
+	return m, cmd
+}
+
+// refocusForm enforces the formFocus invariant: exactly one of the two
+// inputs has focus. Called after every Tab keypress in the form.
+func (m *Model) refocusForm() {
+	if m.formFocus == 0 {
+		_ = m.formSchedule.Focus()
+		m.formCommand.Blur()
+	} else {
+		m.formSchedule.Blur()
+		_ = m.formCommand.Focus()
+	}
 }
 
 func jobMatches(j *cron.Job, lowerQuery string) bool {

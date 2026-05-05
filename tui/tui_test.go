@@ -218,6 +218,108 @@ func TestModelTogglesSystemVisibility(t *testing.T) {
 	}
 }
 
+// 'n' from the list view opens the add form. The schedule input must be
+// focused, both fields blank, and the rendered modal mentions "New cron".
+func TestModelAddOpensForm(t *testing.T) {
+	t.Parallel()
+	jobs := []cron.Job{{ID: "stub:a", Name: "alpha"}}
+	m, _ := newTestModel(jobs...)
+	mm, _ := m.Update(jobsLoadedMsg{jobs: jobs})
+	mm, _ = mm.Update(keyPress("n"))
+	if mm.(Model).view != viewForm {
+		t.Fatalf("want viewForm, got %v", mm.(Model).view)
+	}
+	if mm.(Model).formMode != formAdd {
+		t.Errorf("want formAdd mode, got %v", mm.(Model).formMode)
+	}
+	if !strings.Contains(mm.(Model).render(), "New cron") {
+		t.Errorf("form render missing header:\n%s", mm.(Model).render())
+	}
+}
+
+// 'e' from the list view opens the edit form pre-filled with the current
+// job's schedule and command.
+func TestModelEditOpensFormWithPrefill(t *testing.T) {
+	t.Parallel()
+	jobs := []cron.Job{{ID: "stub:a", Name: "alpha", Schedule: "@daily", Command: "/bin/echo hi"}}
+	m, _ := newTestModel(jobs...)
+	mm, _ := m.Update(jobsLoadedMsg{jobs: jobs})
+	mm, _ = mm.Update(keyPress("e"))
+	if mm.(Model).view != viewForm {
+		t.Fatalf("want viewForm, got %v", mm.(Model).view)
+	}
+	if mm.(Model).formMode != formEdit {
+		t.Errorf("want formEdit mode, got %v", mm.(Model).formMode)
+	}
+	if mm.(Model).formSchedule.Value() != "@daily" {
+		t.Errorf("schedule prefill = %q", mm.(Model).formSchedule.Value())
+	}
+	if mm.(Model).formCommand.Value() != "/bin/echo hi" {
+		t.Errorf("command prefill = %q", mm.(Model).formCommand.Value())
+	}
+}
+
+// 'e' on a system-scope row goes to the read-only modal, not the form,
+// because system jobs can't be edited.
+func TestModelEditSystemJobOpensReadOnly(t *testing.T) {
+	t.Parallel()
+	jobs := []cron.Job{{ID: "stub:sys", Name: "sys", Scope: cron.ScopeSystem}}
+	m, _ := newTestModel(jobs...)
+	mm, _ := m.Update(jobsLoadedMsg{jobs: jobs})
+	mm, _ = mm.Update(keyPress("a"))
+	mm, _ = mm.Update(keyPress("e"))
+	if got := mm.(Model).view; got != viewReadOnly {
+		t.Fatalf("want viewReadOnly, got %v", got)
+	}
+}
+
+// Submitting the form with empty fields surfaces a form error and stays
+// in the modal — does not call mgr.Add.
+func TestModelFormSubmitRequiresBothFields(t *testing.T) {
+	t.Parallel()
+	jobs := []cron.Job{{ID: "stub:a", Name: "alpha"}}
+	m, _ := newTestModel(jobs...)
+	mm, _ := m.Update(jobsLoadedMsg{jobs: jobs})
+	mm, _ = mm.Update(keyPress("n"))
+	mm, _ = mm.Update(keyPress("enter"))
+	if mm.(Model).view != viewForm {
+		t.Errorf("empty submit should keep modal open, got view %v", mm.(Model).view)
+	}
+	if mm.(Model).formError == "" {
+		t.Errorf("expected formError to be set on empty submit")
+	}
+}
+
+// Esc cancels the form and returns to list, leaving formError clear so the
+// next open starts fresh.
+func TestModelFormEscReturnsToList(t *testing.T) {
+	t.Parallel()
+	jobs := []cron.Job{{ID: "stub:a", Name: "alpha"}}
+	m, _ := newTestModel(jobs...)
+	mm, _ := m.Update(jobsLoadedMsg{jobs: jobs})
+	mm, _ = mm.Update(keyPress("n"))
+	mm, _ = mm.Update(keyPress("esc"))
+	if mm.(Model).view != viewList {
+		t.Errorf("esc from form should return to list, got %v", mm.(Model).view)
+	}
+}
+
+// Tab in the form cycles focus from schedule to command and back.
+func TestModelFormTabSwitchesFocus(t *testing.T) {
+	t.Parallel()
+	jobs := []cron.Job{{ID: "stub:a", Name: "alpha"}}
+	m, _ := newTestModel(jobs...)
+	mm, _ := m.Update(jobsLoadedMsg{jobs: jobs})
+	mm, _ = mm.Update(keyPress("n"))
+	if mm.(Model).formFocus != 0 {
+		t.Fatalf("setup: focus not on schedule")
+	}
+	mm, _ = mm.Update(tea.KeyPressMsg{Code: tea.KeyTab, Text: "tab"})
+	if mm.(Model).formFocus != 1 {
+		t.Errorf("after tab focus = %d, want 1", mm.(Model).formFocus)
+	}
+}
+
 // Init returns the reload tea.Cmd so the very first render triggers a List.
 // Without this the user sees an indefinite "loading…" — verify the cmd is
 // non-nil and produces a jobsLoadedMsg when invoked.

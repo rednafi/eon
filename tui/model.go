@@ -19,6 +19,14 @@ const (
 	viewDetail
 	viewConfirmDelete
 	viewReadOnly // shown when the user tries to delete a system-scope job
+	viewForm     // schedule/command entry for add or edit
+)
+
+type formMode int
+
+const (
+	formAdd formMode = iota
+	formEdit
 )
 
 // Timing budget for asynchronous operations. flashDuration is how long a
@@ -92,6 +100,13 @@ type Model struct {
 	selectedJob cron.Job
 	flash       string
 	flashUntil  time.Time
+
+	// form state for the add/edit modal.
+	formMode     formMode
+	formSchedule textinput.Model
+	formCommand  textinput.Model
+	formFocus    int // 0=schedule, 1=command
+	formError    string
 }
 
 // New constructs a Model wired to the given Manager. The Model is returned
@@ -102,12 +117,25 @@ func New(mgr *cron.Manager) Model {
 	ti.Placeholder = "filter"
 	ti.Prompt = "/ "
 	ti.CharLimit = 128
+
+	sched := textinput.New()
+	sched.Placeholder = "@daily, @every 5m, * * * * *"
+	sched.Prompt = "schedule: "
+	sched.CharLimit = 128
+
+	cmdIn := textinput.New()
+	cmdIn.Placeholder = "/usr/local/bin/foo --flag"
+	cmdIn.Prompt = "command:  "
+	cmdIn.CharLimit = 512
+
 	return Model{
-		mgr:    mgr,
-		keys:   newKeyMap(),
-		theme:  newTheme(),
-		view:   viewList,
-		filter: ti,
+		mgr:          mgr,
+		keys:         newKeyMap(),
+		theme:        newTheme(),
+		view:         viewList,
+		filter:       ti,
+		formSchedule: sched,
+		formCommand:  cmdIn,
 	}
 }
 
@@ -140,6 +168,30 @@ func reload(mgr *cron.Manager) tea.Cmd {
 			msg = strings.Join(parts, "; ")
 		}
 		return jobsLoadedMsg{jobs: jobs, err: msg}
+	}
+}
+
+func addCmd(mgr *cron.Manager, spec cron.JobSpec) tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), deleteTimeout)
+		defer cancel()
+		j, err := mgr.Add(ctx, "", spec)
+		if err != nil {
+			return flashMsg{text: "add failed: " + err.Error()}
+		}
+		return flashMsg{text: "added " + j.ID, ok: true}
+	}
+}
+
+func editCmd(mgr *cron.Manager, id string, spec cron.JobSpec) tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), deleteTimeout)
+		defer cancel()
+		j, err := mgr.Edit(ctx, id, spec)
+		if err != nil {
+			return flashMsg{text: "edit failed: " + err.Error()}
+		}
+		return flashMsg{text: "edited " + j.ID, ok: true}
 	}
 }
 

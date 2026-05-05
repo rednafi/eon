@@ -51,7 +51,10 @@ g G               top / bottom
 /                 filter
 enter             open detail
 tab / shift+tab   switch detail tabs (Overview / Raw / Logs)
+n                 new cron (form)
+e                 edit cron (form)
 d                 delete (with confirmation)
+a                 toggle system-scope rows
 r                 refresh
 esc               back
 q                 quit

@@ -7,6 +7,7 @@ type keyMap struct {
 	Filter, Refresh, Enter, Back key.Binding
 	Delete, Tab, Quit, Help      key.Binding
 	ToggleSystem                 key.Binding
+	Add, Edit                    key.Binding
 	Confirm, Cancel              key.Binding
 }
 
@@ -25,6 +26,8 @@ func newKeyMap() keyMap {
 		Quit:         key.NewBinding(key.WithKeys("q", "ctrl+c"), key.WithHelp("q", "quit")),
 		Help:         key.NewBinding(key.WithKeys("?"), key.WithHelp("?", "help")),
 		ToggleSystem: key.NewBinding(key.WithKeys("a"), key.WithHelp("a", "toggle system")),
+		Add:          key.NewBinding(key.WithKeys("n"), key.WithHelp("n", "new")),
+		Edit:         key.NewBinding(key.WithKeys("e"), key.WithHelp("e", "edit")),
 		Confirm:      key.NewBinding(key.WithKeys("y", "Y")),
 		Cancel:       key.NewBinding(key.WithKeys("n", "N", "esc")),
 	}

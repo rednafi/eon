@@ -25,6 +25,8 @@ func (m Model) render() string {
 		return m.viewConfirm()
 	case viewReadOnly:
 		return m.viewReadOnlyPanel()
+	case viewForm:
+		return m.viewFormPanel()
 	default:
 		return m.viewList()
 	}

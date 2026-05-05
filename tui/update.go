@@ -1,11 +1,14 @@
 package tui
 
 import (
+	"strings"
 	"time"
 
 	"charm.land/bubbles/v2/key"
 	"charm.land/bubbles/v2/viewport"
 	tea "charm.land/bubbletea/v2"
+
+	"github.com/rednafi/eon/cron"
 )
 
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -161,9 +164,55 @@ func (m Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 				m.detailTab = tabOverview
 				m.refreshDetailContent()
 			}
+		case key.Matches(msg, m.keys.Add):
+			return m.openAddForm()
+		case key.Matches(msg, m.keys.Edit):
+			return m.openEditForm()
 		case key.Matches(msg, m.keys.Delete):
 			m.startDelete()
 		}
+
+	case viewForm:
+		return m.handleFormKey(msg)
 	}
 	return m, nil
+}
+
+func (m Model) handleFormKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "esc":
+		m.view = viewList
+		m.formError = ""
+		return m, nil
+	case "tab":
+		m.formFocus = (m.formFocus + 1) % 2
+		m.refocusForm()
+		return m, nil
+	case "shift+tab":
+		m.formFocus = (m.formFocus + 1) % 2 // only two fields, same as tab
+		m.refocusForm()
+		return m, nil
+	case "enter":
+		spec := cron.JobSpec{
+			Schedule: m.formSchedule.Value(),
+			Command:  m.formCommand.Value(),
+		}
+		if strings.TrimSpace(spec.Schedule) == "" || strings.TrimSpace(spec.Command) == "" {
+			m.formError = "schedule and command are required"
+			return m, nil
+		}
+		m.view = viewList
+		m.formError = ""
+		if m.formMode == formAdd {
+			return m, addCmd(m.mgr, spec)
+		}
+		return m, editCmd(m.mgr, m.selectedJob.ID, spec)
+	}
+	var cmd tea.Cmd
+	if m.formFocus == 0 {
+		m.formSchedule, cmd = m.formSchedule.Update(msg)
+	} else {
+		m.formCommand, cmd = m.formCommand.Update(msg)
+	}
+	return m, cmd
 }
