@@ -48,16 +48,13 @@ func New() *EtcCron {
 	}
 }
 
-// Name implements cron.Source.
 func (e *EtcCron) Name() string { return "crontab-system" }
 
-// Scope implements cron.Source. /etc/crontab and /etc/cron.d are owned by
-// root or the package manager, so we never offer to mutate them.
+// Scope is always system: /etc/crontab is owned by root or the package manager.
 func (e *EtcCron) Scope() cron.Scope { return cron.ScopeSystem }
 
-// List implements cron.Source. Errors reading individual files are
-// tolerated — surfacing the readable ones is more useful than failing the
-// whole list.
+// List tolerates per-file read errors — surfacing the readable entries
+// beats failing the whole listing.
 func (e *EtcCron) List(_ context.Context) ([]cron.Job, error) {
 	var jobs []cron.Job
 	if data, err := os.ReadFile(e.MainPath); err == nil {

@@ -1,7 +1,3 @@
-// Pure parsing and rendering helpers for launchd plists. Lives outside
-// the darwin build tag so the parser can be unit-tested on every
-// platform — only the launchctl-driving Source itself is darwin-only.
-
 package launchd
 
 import (

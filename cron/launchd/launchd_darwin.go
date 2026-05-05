@@ -80,12 +80,9 @@ func NewSystem() *Launchd {
 	}
 }
 
-// Name implements cron.Source.
 func (l *Launchd) Name() string { return "launchd-" + l.Tag }
 
-// Scope implements cron.Source. ReadOnly distinguishes the user's
-// LaunchAgents (writable) from the /Library and /System/Library
-// locations (system-scope).
+// Scope reports user-writable LaunchAgents vs the read-only /Library tree.
 func (l *Launchd) Scope() cron.Scope {
 	if l.ReadOnly {
 		return cron.ScopeSystem
@@ -93,10 +90,8 @@ func (l *Launchd) Scope() cron.Scope {
 	return cron.ScopeUser
 }
 
-// List implements cron.Source. Missing or unreadable plists are skipped
-// silently; a partial directory shouldn't break listing. Reads run in
-// parallel with a small worker pool — /System/Library/LaunchDaemons can
-// have hundreds of plists and serial reads dominate startup.
+// List reads every plist in Dir in parallel and skips unreadable ones —
+// /System/Library/LaunchDaemons can carry hundreds of files.
 func (l *Launchd) List(ctx context.Context) ([]cron.Job, error) {
 	entries, err := os.ReadDir(l.Dir)
 	if err != nil {
@@ -235,11 +230,9 @@ func (l *Launchd) enrich(ctx context.Context, jobs []cron.Job) {
 	}
 }
 
-// Add implements cron.Mutator. We translate the portable schedule DSL
-// (`@every <duration>` or `@hourly`/`@daily`/...) into a StartInterval
-// plist and write it. Cron-style 5-field schedules return a clear error
-// — they don't have a clean launchd equivalent and the user should
-// target the crontab source instead.
+// Add translates the portable schedule DSL into StartInterval and writes
+// a fresh plist. 5-field cron expressions are rejected — they don't map
+// cleanly to launchd; route those to the crontab source.
 func (l *Launchd) Add(_ context.Context, spec cron.JobSpec) (cron.Job, error) {
 	interval, err := cron.PrepareIntervalSpec(l, spec)
 	if err != nil {
@@ -270,8 +263,6 @@ func (l *Launchd) Add(_ context.Context, spec cron.JobSpec) (cron.Job, error) {
 	return l.readPlist(path)
 }
 
-// Edit implements cron.Mutator. We rewrite the plist for the given ID
-// with the new schedule and command, preserving the file path.
 func (l *Launchd) Edit(_ context.Context, id string, spec cron.JobSpec) (cron.Job, error) {
 	label, ok := strings.CutPrefix(id, "launchd-"+l.Tag+":")
 	if !ok {
@@ -302,7 +293,7 @@ func (l *Launchd) Edit(_ context.Context, id string, spec cron.JobSpec) (cron.Jo
 	return l.readPlist(path)
 }
 
-// Delete implements cron.Source. ReadOnly sources reject the call.
+// Delete removes the plist after a best-effort launchctl unload.
 func (l *Launchd) Delete(ctx context.Context, id string) error {
 	label, ok := strings.CutPrefix(id, "launchd-"+l.Tag+":")
 	if !ok {

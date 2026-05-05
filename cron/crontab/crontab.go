@@ -61,15 +61,12 @@ func New() *Crontab {
 	}
 }
 
-// Name implements cron.Source.
 func (c *Crontab) Name() string { return "crontab" }
 
-// Scope implements cron.Source. The user's own crontab is always writable.
 func (c *Crontab) Scope() cron.Scope { return cron.ScopeUser }
 
-// List implements cron.Source. Each non-comment, non-blank line in the user crontab
-// becomes a cron.Job. The ID is "crontab:<sha1(line)[:8]>" so deletes survive
-// reordering of unrelated lines.
+// List parses the user's crontab. Each non-comment line becomes a Job
+// whose ID is "crontab:<sha1(line)[:8]>" so deletes survive reordering.
 func (c *Crontab) List(ctx context.Context) ([]cron.Job, error) {
 	out, err := c.Runner(ctx, []string{"-l"}, "")
 	if err != nil {
@@ -116,8 +113,7 @@ func (c *Crontab) parse(content string) ([]cron.Job, error) {
 	return jobs, scanner.Err()
 }
 
-// Add implements cron.Mutator. The new line is appended to the user's
-// crontab and identified by its ShortHash on subsequent List() calls.
+// Add appends a new line; the resulting Job's ID is the line's ShortHash.
 func (c *Crontab) Add(ctx context.Context, spec cron.JobSpec) (cron.Job, error) {
 	if err := validateSpec(c.parser, spec); err != nil {
 		return cron.Job{}, err
@@ -143,9 +139,7 @@ func (c *Crontab) Add(ctx context.Context, spec cron.JobSpec) (cron.Job, error) 
 	return jobs[0], nil
 }
 
-// Edit implements cron.Mutator. We locate the line by its hash, replace it
-// in place (preserving position relative to other lines and comments), and
-// rewrite the crontab.
+// Edit locates the line by hash, replaces it in place, and rewrites the crontab.
 func (c *Crontab) Edit(ctx context.Context, id string, spec cron.JobSpec) (cron.Job, error) {
 	target, ok := strings.CutPrefix(id, "crontab:")
 	if !ok {
@@ -202,8 +196,8 @@ func validateSpec(p cronspec.Parser, spec cron.JobSpec) error {
 	return nil
 }
 
-// Delete implements cron.Source. The line is identified by its ID hash so we don't
-// rely on positional indices that change as users edit the crontab manually.
+// Delete locates the line by hash so we don't rely on positional indices
+// that drift as users edit the crontab manually.
 func (c *Crontab) Delete(ctx context.Context, id string) error {
 	target, ok := strings.CutPrefix(id, "crontab:")
 	if !ok {

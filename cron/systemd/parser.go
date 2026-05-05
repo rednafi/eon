@@ -1,7 +1,3 @@
-// Pure parsing/rendering helpers for systemd unit files. Heavy lifting is
-// delegated to github.com/coreos/go-systemd — the canonical Go library
-// for unit-file I/O, used by Kubernetes node tooling and Docker.
-
 package systemd
 
 import (
@@ -68,7 +64,7 @@ func systemdLabel(command string) string {
 // renderTimer emits a minimal [Unit]+[Timer]+[Install] body. Goes through
 // unit.Serialize so the output matches systemd's own escaping rules and
 // round-trips through DeserializeOptions.
-func renderTimer(label string, every time.Duration, descriptor string) string {
+func renderTimer(label string, every time.Duration, descriptor cron.Descriptor) string {
 	opts := []*unit.UnitOption{
 		unit.NewUnitOption("Unit", "Description", "eon-managed timer for "+label),
 	}
@@ -78,8 +74,8 @@ func renderTimer(label string, every time.Duration, descriptor string) string {
 			unit.NewUnitOption("Timer", "OnUnitActiveSec", every.String()),
 			unit.NewUnitOption("Timer", "OnBootSec", every.String()),
 		)
-	case descriptor != "":
-		opts = append(opts, unit.NewUnitOption("Timer", "OnCalendar", descriptor))
+	case descriptor != cron.DescNone:
+		opts = append(opts, unit.NewUnitOption("Timer", "OnCalendar", string(descriptor)))
 	}
 	opts = append(opts,
 		unit.NewUnitOption("Timer", "Persistent", "true"),

@@ -1,7 +1,3 @@
-// Pure parsing helpers for /etc/crontab and /etc/cron.d. No filesystem
-// access lives here — etccron.go is the imperative shell that reads
-// files and feeds bytes in.
-
 package etccron
 
 import (
@@ -32,9 +28,8 @@ func parseEtcCrontab(p cronspec.Parser, path string, data []byte, group string) 
 		if trimmed == "" || strings.HasPrefix(trimmed, "#") {
 			continue
 		}
-		// Skip env-var assignments. They look like KEY=value with no
-		// spaces before the =.
-		if i := strings.Index(trimmed, "="); i > 0 && !strings.ContainsAny(trimmed[:i], " \t") {
+		// KEY=value (env-var) lines have no whitespace in the key half.
+		if k, _, ok := strings.Cut(trimmed, "="); ok && k != "" && !strings.ContainsAny(k, " \t") {
 			continue
 		}
 		schedule, user, command, ok := splitEtcCrontabLine(trimmed)

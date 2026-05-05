@@ -40,32 +40,42 @@ func PrepareIntervalSpec(s Source, spec JobSpec) (ScheduleInterval, error) {
 	return ParseScheduleInterval(spec.Schedule)
 }
 
-// ScheduleInterval is the portable view of a JobSpec.Schedule for backends
-// that don't natively speak 5-field cron (launchd, systemd).
+// Descriptor is a calendar-name shortcut for a recurring schedule. The
+// closed set of values is parsed by ParseScheduleInterval and consumed
+// by every backend that doesn't natively speak 5-field cron — typing
+// the field rather than passing raw strings means a typo in a backend
+// switch fails at compile time, not at runtime.
+type Descriptor string
+
+const (
+	DescNone    Descriptor = ""
+	DescHourly  Descriptor = "hourly"
+	DescDaily   Descriptor = "daily"
+	DescWeekly  Descriptor = "weekly"
+	DescMonthly Descriptor = "monthly"
+	DescYearly  Descriptor = "yearly"
+)
+
+// ScheduleInterval is the portable view of a JobSpec.Schedule for
+// backends that don't natively speak 5-field cron (launchd, systemd).
+// Exactly one of Every / Descriptor is set after a successful
+// ParseScheduleInterval; both empty means the input was unportable.
 //
-// We accept two forms:
-//
-//	"@every <Go duration>"   →  Every: <duration>, Descriptor: ""
-//	"@hourly|daily|weekly"   →  Descriptor: <name>, Every: 0
-//
-// Anything else returns an error so callers can fall through to a
-// crontab-backed source (which DOES speak 5-field cron natively).
+//	"@every <Go duration>"   →  Every: <duration>, Descriptor: DescNone
+//	"@hourly|daily|weekly"   →  Descriptor: Desc<Name>, Every: 0
 type ScheduleInterval struct {
-	// Every is non-zero when the source string was "@every <duration>".
-	Every time.Duration
-	// Descriptor is one of "hourly", "daily", "weekly", "monthly", "yearly"
-	// when the source string used that descriptor; empty otherwise.
-	Descriptor string
+	Every      time.Duration
+	Descriptor Descriptor
 }
 
-// IsEmpty returns true when neither Every nor Descriptor was set — used by
-// callers that want a default branch in switches.
-func (s ScheduleInterval) IsEmpty() bool { return s.Every == 0 && s.Descriptor == "" }
+// IsEmpty returns true when neither Every nor Descriptor was set — used
+// by callers that want a default branch in switches.
+func (s ScheduleInterval) IsEmpty() bool { return s.Every == 0 && s.Descriptor == DescNone }
 
 // Seconds returns the interval as a count of seconds, suitable for
 // schedulers that take a single duration (launchd's StartInterval).
-// Descriptor values use approximate calendar-month / year conversions.
-// Returns 0 for an empty interval.
+// Monthly and yearly use approximate conversions because the
+// representation is calendar-blind.
 func (s ScheduleInterval) Seconds() int {
 	if s.Every > 0 {
 		secs := int(s.Every.Seconds())
@@ -75,15 +85,15 @@ func (s ScheduleInterval) Seconds() int {
 		return secs
 	}
 	switch s.Descriptor {
-	case "hourly":
+	case DescHourly:
 		return 3600
-	case "daily":
+	case DescDaily:
 		return 86400
-	case "weekly":
+	case DescWeekly:
 		return 7 * 86400
-	case "monthly":
-		return 30 * 86400 // approximate; no calendar-month interval at the seconds level
-	case "yearly":
+	case DescMonthly:
+		return 30 * 86400
+	case DescYearly:
 		return 365 * 86400
 	}
 	return 0
@@ -98,15 +108,15 @@ func ParseScheduleInterval(schedule string) (ScheduleInterval, error) {
 	s := strings.TrimSpace(schedule)
 	switch s {
 	case "@hourly":
-		return ScheduleInterval{Descriptor: "hourly"}, nil
+		return ScheduleInterval{Descriptor: DescHourly}, nil
 	case "@daily", "@midnight":
-		return ScheduleInterval{Descriptor: "daily"}, nil
+		return ScheduleInterval{Descriptor: DescDaily}, nil
 	case "@weekly":
-		return ScheduleInterval{Descriptor: "weekly"}, nil
+		return ScheduleInterval{Descriptor: DescWeekly}, nil
 	case "@monthly":
-		return ScheduleInterval{Descriptor: "monthly"}, nil
+		return ScheduleInterval{Descriptor: DescMonthly}, nil
 	case "@yearly", "@annually":
-		return ScheduleInterval{Descriptor: "yearly"}, nil
+		return ScheduleInterval{Descriptor: DescYearly}, nil
 	}
 	if rest, ok := strings.CutPrefix(s, "@every "); ok {
 		d, err := time.ParseDuration(strings.TrimSpace(rest))

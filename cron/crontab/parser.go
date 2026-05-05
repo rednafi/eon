@@ -1,9 +1,3 @@
-// Pure parsing helpers for the user crontab. No syscall, no Runner: the
-// functional core that the imperative Source in crontab.go delegates to.
-// Living in its own file makes it obvious what's testable in isolation
-// (everything here) versus what needs a process boundary (the methods
-// in crontab.go that shell out to the `crontab` binary).
-
 package crontab
 
 import (

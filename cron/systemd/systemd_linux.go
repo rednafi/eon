@@ -61,11 +61,9 @@ func NewUser() *Systemd {
 	}
 }
 
-// Name implements cron.Source.
 func (s *Systemd) Name() string { return "systemd-" + s.Tag }
 
-// Scope implements cron.Source. ReadOnly marks the /etc and /usr/lib system
-// timer dirs; the per-user dir stays writable.
+// Scope reports user-writable per-user dirs vs read-only system dirs.
 func (s *Systemd) Scope() cron.Scope {
 	if s.ReadOnly {
 		return cron.ScopeSystem
@@ -73,8 +71,6 @@ func (s *Systemd) Scope() cron.Scope {
 	return cron.ScopeUser
 }
 
-// List implements cron.Source. We read every *.timer file in Dir, then optionally
-// enrich with `systemctl list-timers --all` runtime data.
 func (s *Systemd) List(ctx context.Context) ([]cron.Job, error) {
 	entries, err := os.ReadDir(s.Dir)
 	if err != nil {
@@ -149,9 +145,6 @@ func (s *Systemd) readTimer(path string) (cron.Job, error) {
 	}, nil
 }
 
-// Add implements cron.Mutator. We translate the portable schedule DSL
-// into systemd's OnUnitActiveSec or OnCalendar, then write a .timer
-// + .service pair into Dir. daemon-reload is best-effort.
 func (s *Systemd) Add(ctx context.Context, spec cron.JobSpec) (cron.Job, error) {
 	interval, err := cron.PrepareIntervalSpec(s, spec)
 	if err != nil {
@@ -190,9 +183,6 @@ func (s *Systemd) Add(ctx context.Context, spec cron.JobSpec) (cron.Job, error) 
 	return s.readTimer(timerPath)
 }
 
-// Edit implements cron.Mutator. The .timer is rewritten with the new
-// schedule and the .service with the new command; daemon-reload is
-// best-effort like Delete.
 func (s *Systemd) Edit(ctx context.Context, id string, spec cron.JobSpec) (cron.Job, error) {
 	label, ok := strings.CutPrefix(id, "systemd-"+s.Tag+":")
 	if !ok {
@@ -229,14 +219,6 @@ func (s *Systemd) Edit(ctx context.Context, id string, spec cron.JobSpec) (cron.
 	return s.readTimer(timerPath)
 }
 
-// validateSpec + systemdLabel live in parser.go (functional core).
-
-// renderTimer + renderService live in parser.go (functional core).
-
-// Delete implements cron.Source. We stop+disable the timer (best-effort),
-// then remove the .timer and its sibling .service from disk. The unit is no
-// longer scheduled after this even if daemon-reload hasn't run, because the
-// file backing it is gone.
 func (s *Systemd) Delete(ctx context.Context, id string) error {
 	label, ok := strings.CutPrefix(id, "systemd-"+s.Tag+":")
 	if !ok {
