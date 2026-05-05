@@ -212,30 +212,42 @@ func (m *Manager) Find(ctx context.Context, idOrPrefix string) (Job, error) {
 // sourceName is empty, the first writable Mutator Source wins — so users
 // can run `eon add` without knowing the backend. Returns the created Job.
 func (m *Manager) Add(ctx context.Context, sourceName string, spec JobSpec) (Job, error) {
-	for _, s := range m.sources {
-		if sourceName != "" && s.Name() != sourceName {
-			continue
-		}
-		mut, ok := s.(Mutator)
-		if !ok {
-			if sourceName != "" {
-				return Job{}, fmt.Errorf("%s: %w", s.Name(), ErrReadOnly)
-			}
-			continue
-		}
-		j, err := mut.Add(ctx, spec)
-		if err != nil {
-			return Job{}, err
-		}
-		if j.Scope == "" {
-			j.Scope = s.Scope()
-		}
-		return j, nil
+	s, err := m.pickWritable(sourceName)
+	if err != nil {
+		return Job{}, err
 	}
+	j, err := s.(Mutator).Add(ctx, spec)
+	if err != nil {
+		return Job{}, err
+	}
+	if j.Scope == "" {
+		j.Scope = s.Scope()
+	}
+	return j, nil
+}
+
+// pickWritable returns the Source we should target for an Add. With a
+// specific name we either return that source (if it's a Mutator) or a
+// targeted error. With no name, the first writable Source wins.
+func (m *Manager) pickWritable(sourceName string) (Source, error) {
 	if sourceName != "" {
-		return Job{}, fmt.Errorf("source %q not found", sourceName)
+		for _, s := range m.sources {
+			if s.Name() != sourceName {
+				continue
+			}
+			if _, ok := s.(Mutator); !ok {
+				return nil, fmt.Errorf("%s: %w", s.Name(), ErrReadOnly)
+			}
+			return s, nil
+		}
+		return nil, fmt.Errorf("source %q not found", sourceName)
 	}
-	return Job{}, ErrReadOnly
+	for _, s := range m.sources {
+		if _, ok := s.(Mutator); ok {
+			return s, nil
+		}
+	}
+	return nil, ErrReadOnly
 }
 
 // Edit replaces the schedule/command of an existing job. The owning Source
