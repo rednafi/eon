@@ -1,6 +1,12 @@
 package systemd
 
-import "testing"
+import (
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/rednafi/eon/cron"
+)
 
 func TestParseUnitBasicKeyVal(t *testing.T) {
 	t.Parallel()
@@ -180,6 +186,70 @@ func TestParseUnitStripsUTF8BOM(t *testing.T) {
 	got := parseUnit("\uFEFF[Service]\nExecStart=/bin/foo\n")
 	if got["Service.ExecStart"] != "/bin/foo" {
 		t.Errorf("BOM bled into key/section: %v", got)
+	}
+}
+
+// validateSpec is shared with the Linux Add/Edit flow. The pure-function
+// tests here run on every platform.
+func TestValidateSpec(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		name string
+		spec cron.JobSpec
+		fail bool
+	}{
+		{"happy", cron.JobSpec{Schedule: "@hourly", Command: "/bin/x"}, false},
+		{"empty schedule", cron.JobSpec{Schedule: "", Command: "/bin/x"}, true},
+		{"whitespace schedule", cron.JobSpec{Schedule: "   ", Command: "/bin/x"}, true},
+		{"empty command", cron.JobSpec{Schedule: "@hourly", Command: ""}, true},
+		{"command with newline", cron.JobSpec{Schedule: "@hourly", Command: "/bin/x\nbad"}, true},
+		{"command with CR", cron.JobSpec{Schedule: "@hourly", Command: "/bin/x\rbad"}, true},
+	}
+	for _, tc := range cases {
+		err := validateSpec(tc.spec)
+		if tc.fail && err == nil {
+			t.Errorf("%s: expected error", tc.name)
+		}
+		if !tc.fail && err != nil {
+			t.Errorf("%s: unexpected error: %v", tc.name, err)
+		}
+	}
+}
+
+func TestSystemdLabel(t *testing.T) {
+	t.Parallel()
+	cases := []struct{ command, want string }{
+		{"/bin/echo hi", "eon-echo"},
+		{"/usr/local/bin/run --flag", "eon-run"},
+		{"FOO=bar /bin/x", "eon-x"},
+		{"", "eon-job"},
+	}
+	for _, tc := range cases {
+		if got := systemdLabel(tc.command); got != tc.want {
+			t.Errorf("systemdLabel(%q) = %q, want %q", tc.command, got, tc.want)
+		}
+	}
+}
+
+// renderTimer must produce valid INI-shaped systemd output. We don't
+// depend on systemd-analyze here; spot-check a few invariants.
+func TestRenderTimerProducesValidUnit(t *testing.T) {
+	t.Parallel()
+	got := renderTimer("eon-test", 5*time.Minute, "")
+	if !strings.Contains(got, "[Timer]") || !strings.Contains(got, "OnUnitActiveSec=5m0s") {
+		t.Errorf("interval timer body wrong:\n%s", got)
+	}
+	got = renderTimer("eon-test", 0, "daily")
+	if !strings.Contains(got, "OnCalendar=daily") {
+		t.Errorf("descriptor timer body wrong:\n%s", got)
+	}
+}
+
+func TestRenderServiceProducesValidUnit(t *testing.T) {
+	t.Parallel()
+	got := renderService("eon-test", "/bin/echo hi")
+	if !strings.Contains(got, "[Service]") || !strings.Contains(got, "ExecStart=/bin/echo hi") {
+		t.Errorf("service body wrong:\n%s", got)
 	}
 }
 

@@ -6,7 +6,11 @@ package systemd
 
 import (
 	"bufio"
+	"fmt"
 	"strings"
+	"time"
+
+	"github.com/rednafi/eon/cron"
 )
 
 // utf8BOM is the byte-order mark some editors prepend to UTF-8 files.
@@ -69,4 +73,64 @@ func prefixed(p, s string) string {
 		return ""
 	}
 	return p + s
+}
+
+// validateSpec rejects obviously-broken inputs before the imperative
+// shell touches disk. Pure — testable on every platform.
+func validateSpec(spec cron.JobSpec) error {
+	if strings.TrimSpace(spec.Schedule) == "" {
+		return fmt.Errorf("schedule must not be empty")
+	}
+	if strings.TrimSpace(spec.Command) == "" {
+		return fmt.Errorf("command must not be empty")
+	}
+	if strings.ContainsAny(spec.Command, "\r\n") {
+		return fmt.Errorf("command must not contain newlines")
+	}
+	return nil
+}
+
+// systemdLabel derives a label from a command, prefixed with "eon-" so the
+// source of an eon-created unit is obvious in `systemctl list-timers`.
+func systemdLabel(command string) string {
+	short := cron.CommandShortName(command)
+	short = strings.ReplaceAll(short, "/", "-")
+	if short == "" {
+		short = "job"
+	}
+	return "eon-" + short
+}
+
+// renderTimer emits a minimal [Unit]+[Timer]+[Install] body. Pure: takes
+// label + interval, returns the unit text. Linux Source uses it; tests
+// can call it on any platform.
+func renderTimer(label string, every time.Duration, descriptor string) string {
+	var sched string
+	switch {
+	case every > 0:
+		sched = fmt.Sprintf("OnUnitActiveSec=%s\nOnBootSec=%s", every, every)
+	case descriptor != "":
+		sched = "OnCalendar=" + descriptor
+	}
+	return fmt.Sprintf(`[Unit]
+Description=eon-managed timer for %s
+
+[Timer]
+%s
+Persistent=true
+
+[Install]
+WantedBy=timers.target
+`, label, sched)
+}
+
+// renderService emits the matching .service body for a Timer.
+func renderService(label, command string) string {
+	return fmt.Sprintf(`[Unit]
+Description=eon-managed service for %s
+
+[Service]
+Type=oneshot
+ExecStart=%s
+`, label, command)
 }

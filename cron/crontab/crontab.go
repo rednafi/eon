@@ -253,45 +253,7 @@ func (c *Crontab) Delete(ctx context.Context, id string) error {
 	return err
 }
 
-// splitCrontabLine separates the schedule expression from the command. It
-// supports both 5-field and descriptor (@daily, @reboot, ...) syntax.
-// utf8BOM is the byte-order mark some editors prepend to UTF-8 files.
-// strings.TrimSpace doesn't remove it, so we strip it explicitly.
-const utf8BOM = "\uFEFF"
+// splitCrontabLine + utf8BOM live in parser.go (the pure-functional core
+// of this package). This file holds the imperative shell \u2014 methods that
+// drive the `crontab` binary through CrontabRunner.
 
-func splitCrontabLine(line string) (schedule, command string, ok bool) {
-	line = strings.TrimSpace(strings.TrimPrefix(line, utf8BOM))
-	if strings.HasPrefix(line, "@") {
-		// "@daily<sep>cmd" — split on first run of whitespace (space OR tab),
-		// not just space; some editors save crontabs with TAB separators.
-		i := strings.IndexAny(line, " \t")
-		if i < 0 {
-			return "", "", false
-		}
-		cmd := strings.TrimSpace(line[i:])
-		if cmd == "" {
-			return "", "", false
-		}
-		return line[:i], cmd, true
-	}
-	// 5 fields then command. Fields can contain commas/dashes/slashes but not
-	// spaces, so a simple field-walk is sufficient. We must use a C-style
-	// loop here — `for i := range len(line)` ignores mutations to i, which we
-	// rely on for the whitespace skip.
-	fields := 0
-	for i := 0; i < len(line); i++ {
-		if line[i] != ' ' && line[i] != '\t' {
-			continue
-		}
-		j := i
-		for j < len(line) && (line[j] == ' ' || line[j] == '\t') {
-			j++
-		}
-		fields++
-		if fields == 5 {
-			return strings.Join(strings.Fields(line[:i]), " "), strings.TrimSpace(line[j:]), true
-		}
-		i = j - 1
-	}
-	return "", "", false
-}

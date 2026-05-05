@@ -169,7 +169,7 @@ func (s *Systemd) Add(ctx context.Context, spec cron.JobSpec) (cron.Job, error) 
 	if err := os.MkdirAll(s.Dir, 0o755); err != nil {
 		return cron.Job{}, err
 	}
-	if err := os.WriteFile(timerPath, []byte(renderTimer(label, interval)), 0o644); err != nil {
+	if err := os.WriteFile(timerPath, []byte(renderTimer(label, interval.Every, interval.Descriptor)), 0o644); err != nil {
 		return cron.Job{}, err
 	}
 	servicePath := filepath.Join(s.Dir, label+".service")
@@ -207,7 +207,7 @@ func (s *Systemd) Edit(ctx context.Context, id string, spec cron.JobSpec) (cron.
 	} else if err != nil {
 		return cron.Job{}, err
 	}
-	if err := os.WriteFile(timerPath, []byte(renderTimer(label, interval)), 0o644); err != nil {
+	if err := os.WriteFile(timerPath, []byte(renderTimer(label, interval.Every, interval.Descriptor)), 0o644); err != nil {
 		return cron.Job{}, err
 	}
 	servicePath := filepath.Join(s.Dir, label+".service")
@@ -220,60 +220,9 @@ func (s *Systemd) Edit(ctx context.Context, id string, spec cron.JobSpec) (cron.
 	return s.readTimer(timerPath)
 }
 
-func validateSpec(spec cron.JobSpec) error {
-	if strings.TrimSpace(spec.Schedule) == "" {
-		return fmt.Errorf("schedule must not be empty")
-	}
-	if strings.TrimSpace(spec.Command) == "" {
-		return fmt.Errorf("command must not be empty")
-	}
-	if strings.ContainsAny(spec.Command, "\r\n") {
-		return fmt.Errorf("command must not contain newlines")
-	}
-	return nil
-}
+// validateSpec + systemdLabel live in parser.go (functional core).
 
-func systemdLabel(command string) string {
-	short := cron.CommandShortName(command)
-	short = strings.ReplaceAll(short, "/", "-")
-	if short == "" {
-		short = "job"
-	}
-	return "eon-" + short
-}
-
-// renderTimer emits a minimal [Unit]+[Timer]+[Install] body. We prefer
-// OnCalendar for descriptors (systemd parses "hourly", "daily" etc.
-// natively) and OnUnitActiveSec for "@every <duration>".
-func renderTimer(label string, interval cron.ScheduleInterval) string {
-	var sched string
-	switch {
-	case interval.Every > 0:
-		sched = fmt.Sprintf("OnUnitActiveSec=%s\nOnBootSec=%s", interval.Every, interval.Every)
-	case interval.Descriptor != "":
-		sched = "OnCalendar=" + interval.Descriptor
-	}
-	return fmt.Sprintf(`[Unit]
-Description=eon-managed timer for %s
-
-[Timer]
-%s
-Persistent=true
-
-[Install]
-WantedBy=timers.target
-`, label, sched)
-}
-
-func renderService(label, command string) string {
-	return fmt.Sprintf(`[Unit]
-Description=eon-managed service for %s
-
-[Service]
-Type=oneshot
-ExecStart=%s
-`, label, command)
-}
+// renderTimer + renderService live in parser.go (functional core).
 
 // Delete implements cron.Source. We stop+disable the timer (best-effort),
 // then remove the .timer and its sibling .service from disk. The unit is no
