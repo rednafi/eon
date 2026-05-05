@@ -114,11 +114,17 @@ func (l *Launchd) List(ctx context.Context) ([]cron.Job, error) {
 	results := make([]cron.Job, len(paths))
 	ok := make([]bool, len(paths))
 	var wg sync.WaitGroup
-	sem := make(chan struct{}, 8) // bound concurrency; plist decode is CPU + I/O
+	sem := cron.FanoutSemaphore()
 	for i, full := range paths {
-		sem <- struct{}{}
+		// Sharing the Manager's budget means the system can't spike
+		// past cron.MaxConcurrency even if every launchd dir lists at
+		// once. Acquire blocks on the parent goroutine so we don't
+		// queue thousands of waiting workers.
+		if err := sem.Acquire(ctx, 1); err != nil {
+			break
+		}
 		wg.Go(func() {
-			defer func() { <-sem }()
+			defer sem.Release(1)
 			j, err := l.readPlist(full)
 			if err != nil {
 				return

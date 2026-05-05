@@ -8,7 +8,29 @@ import (
 	"slices"
 	"strings"
 	"sync"
+
+	"golang.org/x/sync/semaphore"
 )
+
+// MaxConcurrency caps the goroutines any single fan-out (Manager.List or
+// a Source's internal parallelism) may spawn. Read-heavy passes that
+// might otherwise launch one goroutine per file (launchd's plist scan
+// over /System/Library) acquire from a shared budget so we never spike
+// past this number, regardless of how many Sources fire at once.
+const MaxConcurrency = 100
+
+// fanoutSem is the per-process semaphore enforcing MaxConcurrency. It is
+// shared across all Manager and Source instances in a process — workers
+// hold a slot for the duration of one unit of work and release on
+// completion.
+var fanoutSem = semaphore.NewWeighted(int64(MaxConcurrency))
+
+// FanoutSemaphore exposes the shared concurrency budget so backend
+// Sources can acquire from the same pool the Manager uses. Backends
+// hand-rolling worker pools should call this rather than allocating
+// their own semaphore — otherwise a busy launchd read could itself
+// launch dozens of goroutines on top of the Manager's per-source ones.
+func FanoutSemaphore() *semaphore.Weighted { return fanoutSem }
 
 // Manager fans calls out across multiple Sources. Construct one with
 // NewManager and treat it as the single entry point for any program that
@@ -50,7 +72,15 @@ func (m *Manager) List(ctx context.Context) ([]Job, []error) {
 	results := make([]result, len(m.sources))
 	var wg sync.WaitGroup
 	for i, s := range m.sources {
+		// Acquire on the parent goroutine so a slow Source can't have
+		// many goroutines queued up — Acquire respects ctx and unblocks
+		// in registration order.
+		if err := fanoutSem.Acquire(ctx, 1); err != nil {
+			results[i] = result{err: fmt.Errorf("%s: %w", s.Name(), err)}
+			continue
+		}
 		wg.Go(func() {
+			defer fanoutSem.Release(1)
 			jobs, err := s.List(ctx)
 			if err != nil {
 				results[i] = result{err: fmt.Errorf("%s: %w", s.Name(), err)}
