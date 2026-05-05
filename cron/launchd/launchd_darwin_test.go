@@ -14,7 +14,25 @@ import (
 	"testing"
 
 	"github.com/rednafi/eon/cron"
+	"github.com/rednafi/eon/cron/crontest"
 )
+
+// TestLaunchdContract pins the Source + Mutator contract.
+func TestLaunchdContract(t *testing.T) {
+	t.Parallel()
+	newSource := func(*testing.T) cron.Source {
+		dir := t.TempDir()
+		if err := os.WriteFile(filepath.Join(dir, "com.contract.seed.plist"), []byte(minimalPlist("com.contract.seed", 60)), 0o644); err != nil {
+			t.Fatalf("seed: %v", err)
+		}
+		return &Launchd{Dir: dir, Tag: "user", Runner: nil}
+	}
+	crontest.Contract(t, "launchd", newSource)
+	crontest.MutatorContract(t, "launchd", newSource,
+		cron.JobSpec{Schedule: "@daily", Command: "/bin/contract-add"},
+		cron.JobSpec{Schedule: "@hourly", Command: "/bin/contract-edit"},
+	)
+}
 
 // minimalPlist returns a launchd plist body with the supplied label and
 // minute interval. Tests use it to spin up dozens of fixtures without keeping

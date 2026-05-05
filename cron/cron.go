@@ -105,7 +105,13 @@ type JobSpec struct {
 // Source claims the request.
 //
 // Add returns the freshly created Job (so callers can show its ID).
-// Edit must route on the same ID shape that Delete recognises.
+// Edit returns the updated Job; the returned ID is the one callers
+// should use for subsequent Delete or follow-up Edit calls. Backends
+// with stable, label-based IDs (launchd, systemd) preserve the original
+// ID; backends with content-derived IDs (the user crontab, where the ID
+// is a hash of the line) may return a different ID after Edit. The
+// original ID becomes invalid in the latter case — Delete on the old ID
+// returns ErrNotFound.
 type Mutator interface {
 	Add(ctx context.Context, spec JobSpec) (Job, error)
 	Edit(ctx context.Context, id string, spec JobSpec) (Job, error)

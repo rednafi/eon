@@ -8,7 +8,25 @@ import (
 	"testing"
 
 	"github.com/rednafi/eon/cron"
+	"github.com/rednafi/eon/cron/crontest"
 )
+
+// TestEtcCronContract pins the read-only Source contract for /etc/crontab.
+// No MutatorContract — EtcCron is system-scope.
+func TestEtcCronContract(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "crontab"), []byte("0 0 * * * root /bin/contract\n"), 0o644); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	crontest.Contract(t, "etccron", func(*testing.T) cron.Source {
+		return &EtcCron{
+			MainPath:  filepath.Join(dir, "crontab"),
+			DropInDir: filepath.Join(dir, "cron.d"),
+			parser:    New().parser,
+		}
+	})
+}
 
 func TestEtcCronParsesSixFieldFormat(t *testing.T) {
 	t.Parallel()

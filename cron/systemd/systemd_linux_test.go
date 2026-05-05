@@ -12,7 +12,23 @@ import (
 	"testing"
 
 	"github.com/rednafi/eon/cron"
+	"github.com/rednafi/eon/cron/crontest"
 )
+
+// TestSystemdContract pins the Source + Mutator contract.
+func TestSystemdContract(t *testing.T) {
+	t.Parallel()
+	newSource := func(*testing.T) cron.Source {
+		dir := t.TempDir()
+		writePair(t, dir, "contract-seed")
+		return &Systemd{Dir: dir, Tag: "user", Systemctl: nil}
+	}
+	crontest.Contract(t, "systemd", newSource)
+	crontest.MutatorContract(t, "systemd", newSource,
+		cron.JobSpec{Schedule: "@daily", Command: "/bin/contract-add"},
+		cron.JobSpec{Schedule: "@hourly", Command: "/bin/contract-edit"},
+	)
+}
 
 const sampleTimer = `[Unit]
 Description=Test timer

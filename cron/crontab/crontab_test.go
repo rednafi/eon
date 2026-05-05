@@ -9,6 +9,7 @@ import (
 	"slices"
 
 	"github.com/rednafi/eon/cron"
+	"github.com/rednafi/eon/cron/crontest"
 )
 
 // fakeCrontab returns a CrontabRunner that pretends a fixed crontab exists,
@@ -577,4 +578,22 @@ func TestCommandShortName(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestCrontabContract runs the package-agnostic Source / Mutator contract
+// against the crontab backend. Adding similar wrappers in every other
+// backend means the interface contract is enforced uniformly: a regression
+// in any single Source surfaces here, not just in backend-specific tests.
+func TestCrontabContract(t *testing.T) {
+	t.Parallel()
+	newSource := func(*testing.T) cron.Source {
+		c := New()
+		c.Runner = (&fakeCrontab{content: "*/5 * * * * /bin/contract\n"}).run
+		return c
+	}
+	crontest.Contract(t, "crontab", newSource)
+	crontest.MutatorContract(t, "crontab", newSource,
+		cron.JobSpec{Schedule: "@daily", Command: "/bin/contract-add"},
+		cron.JobSpec{Schedule: "@hourly", Command: "/bin/contract-edit"},
+	)
 }
