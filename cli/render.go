@@ -139,7 +139,13 @@ func tail(w io.Writer, path string, n int) error {
 		buf = append(piece, buf...)
 		lines = strings.Count(string(buf), "\n")
 	}
-	all := strings.Split(strings.TrimRight(string(buf), "\n"), "\n")
+	trimmed := strings.TrimRight(string(buf), "\n")
+	// Empty file (or whitespace-only) — print nothing rather than a single
+	// blank line. strings.Split("", "\n") returns [""] which would echo "".
+	if trimmed == "" {
+		return nil
+	}
+	all := strings.Split(trimmed, "\n")
 	if len(all) > n {
 		all = all[len(all)-n:]
 	}

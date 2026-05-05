@@ -95,13 +95,18 @@ func (e *EtcCron) Delete(_ context.Context, _ string) error {
 // parseFile pulls cron lines out of either /etc/crontab or a /etc/cron.d
 // fragment. Both share the format: comments, blank lines, ENV=value
 // assignments (skipped), and "<schedule> <user> <command>" entries.
+// utf8BOM is stripped per line so files saved by editors that prepend a
+// byte-order mark don't poison the first key. strings.TrimSpace doesn't
+// remove it.
+const utf8BOM = "\uFEFF"
+
 func (e *EtcCron) parseFile(path string, data []byte, group string) []cron.Job {
 	var jobs []cron.Job
 	scanner := bufio.NewScanner(strings.NewReader(string(data)))
 	scanner.Buffer(make([]byte, 1024*1024), 1024*1024)
 	for scanner.Scan() {
 		line := scanner.Text()
-		trimmed := strings.TrimSpace(line)
+		trimmed := strings.TrimSpace(strings.TrimPrefix(line, utf8BOM))
 		if trimmed == "" || strings.HasPrefix(trimmed, "#") {
 			continue
 		}

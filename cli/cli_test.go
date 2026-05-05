@@ -490,6 +490,42 @@ func TestRenderJobDetailIncludesAllTimestamps(t *testing.T) {
 	}
 }
 
+// An empty log file should produce zero output, not a single blank line.
+// strings.Split("", "\n") yields [""] which would otherwise echo "" to the
+// writer.
+func TestTailEmptyFilePrintsNothing(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	f := filepath.Join(dir, "empty.log")
+	if err := os.WriteFile(f, nil, 0o600); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	var out bytes.Buffer
+	if err := tail(&out, f, 100); err != nil {
+		t.Fatalf("tail: %v", err)
+	}
+	if out.Len() != 0 {
+		t.Errorf("empty file should print nothing, got %q", out.String())
+	}
+}
+
+// File containing only newlines (no content) should also print nothing.
+func TestTailWhitespaceOnlyFilePrintsNothing(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	f := filepath.Join(dir, "only-newlines.log")
+	if err := os.WriteFile(f, []byte("\n\n\n"), 0o600); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	var out bytes.Buffer
+	if err := tail(&out, f, 100); err != nil {
+		t.Fatalf("tail: %v", err)
+	}
+	if out.Len() != 0 {
+		t.Errorf("newline-only file should print nothing, got %q", out.String())
+	}
+}
+
 func TestTailReturnsLastNLines(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()

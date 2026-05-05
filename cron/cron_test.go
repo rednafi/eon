@@ -74,6 +74,19 @@ func (e *errOrigin) Scope() Scope                             { return ScopeUser
 func (e *errOrigin) List(_ context.Context) ([]Job, error)    { return nil, e.err }
 func (e *errOrigin) Delete(_ context.Context, _ string) error { return ErrNotFound }
 
+// Find with an empty or whitespace-only argument must surface a usage error
+// rather than the confusing "ambiguous: N jobs" — strings.Contains(_, "")
+// is true for everything, so it would have matched every job otherwise.
+func TestManagerFindRejectsEmptyArg(t *testing.T) {
+	t.Parallel()
+	mgr := NewManager(&stubOrigin{name: "x", jobs: []Job{{ID: "a"}, {ID: "b"}}})
+	for _, in := range []string{"", "  ", "\t"} {
+		if _, err := mgr.Find(t.Context(), in); err == nil || !strings.Contains(err.Error(), "required") {
+			t.Errorf("Find(%q) = %v, want usage error", in, err)
+		}
+	}
+}
+
 func TestManagerFindExactThenPrefix(t *testing.T) {
 	t.Parallel()
 	mgr := NewManager(&stubOrigin{

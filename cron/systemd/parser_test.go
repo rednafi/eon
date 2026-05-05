@@ -148,6 +148,17 @@ func FuzzParseUnit(f *testing.F) {
 	})
 }
 
+// systemd unit files saved by editors that prepend a UTF-8 BOM
+// (U+FEFF) must still parse — the BOM shouldn't bleed into the section
+// name or first key.
+func TestParseUnitStripsUTF8BOM(t *testing.T) {
+	t.Parallel()
+	got := parseUnit("\uFEFF[Service]\nExecStart=/bin/foo\n")
+	if got["Service.ExecStart"] != "/bin/foo" {
+		t.Errorf("BOM bled into key/section: %v", got)
+	}
+}
+
 func TestPrefixedAddsPrefixWhenNonEmpty(t *testing.T) {
 	t.Parallel()
 	if got := prefixed("every ", "5min"); got != "every 5min" {

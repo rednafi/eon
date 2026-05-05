@@ -9,6 +9,11 @@ import (
 	"strings"
 )
 
+// utf8BOM is the byte-order mark some editors prepend to UTF-8 files.
+// strings.TrimSpace doesn't remove it, so we strip it explicitly per line
+// to handle files saved by Notepad or similar.
+const utf8BOM = "\uFEFF"
+
 // parseUnit reads a systemd unit file into a flat map keyed by "Section.Key".
 // Multi-line values and continuations aren't supported — eon doesn't need
 // them, and ignoring them keeps the parser tiny and predictable.
@@ -18,7 +23,7 @@ func parseUnit(content string) map[string]string {
 	scanner.Buffer(make([]byte, 1024*1024), 1024*1024)
 	section := ""
 	for scanner.Scan() {
-		line := strings.TrimSpace(scanner.Text())
+		line := strings.TrimSpace(strings.TrimPrefix(scanner.Text(), utf8BOM))
 		if line == "" || strings.HasPrefix(line, "#") || strings.HasPrefix(line, ";") {
 			continue
 		}

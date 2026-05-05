@@ -174,8 +174,13 @@ func (m *Manager) List(ctx context.Context) ([]Job, []error) {
 
 // Find resolves a job by ID across all Sources. Exact ID match wins; otherwise
 // a case-insensitive substring match on ID, Name, or Command must produce
-// exactly one hit.
+// exactly one hit. An empty idOrPrefix is rejected — strings.Contains(_, "")
+// is true for every Job, which would surface as a confusing "ambiguous"
+// error rather than the obvious "you didn't pass an ID".
 func (m *Manager) Find(ctx context.Context, idOrPrefix string) (Job, error) {
+	if strings.TrimSpace(idOrPrefix) == "" {
+		return Job{}, fmt.Errorf("id or unique prefix required")
+	}
 	jobs, _ := m.List(ctx)
 	if i := slices.IndexFunc(jobs, func(j Job) bool { return j.ID == idOrPrefix }); i >= 0 {
 		return jobs[i], nil

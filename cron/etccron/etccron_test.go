@@ -301,6 +301,29 @@ func FuzzEtcCronParseFile(f *testing.F) {
 	})
 }
 
+// /etc/crontab files saved with a UTF-8 BOM must still parse — the BOM
+// shouldn't bleed into the schedule field of the first job.
+func TestEtcCronStripsUTF8BOM(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	main := filepath.Join(dir, "crontab")
+	body := "\uFEFF*/5 * * * * root /bin/echo hi\n"
+	if err := os.WriteFile(main, []byte(body), 0o644); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	src := &EtcCron{MainPath: main, DropInDir: "/no/dir", parser: New().parser}
+	jobs, err := src.List(t.Context())
+	if err != nil {
+		t.Fatalf("list: %v", err)
+	}
+	if len(jobs) != 1 {
+		t.Fatalf("BOM swallowed the job, got %d", len(jobs))
+	}
+	if jobs[0].Schedule != "*/5 * * * *" {
+		t.Errorf("BOM bled into schedule: %q", jobs[0].Schedule)
+	}
+}
+
 func TestEtcCronNameAndScope(t *testing.T) {
 	t.Parallel()
 	src := New()
