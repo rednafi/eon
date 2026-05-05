@@ -208,6 +208,27 @@ func TestParseScheduleInterval(t *testing.T) {
 	}
 }
 
+// FuzzParseScheduleInterval asserts the schedule mini-DSL parser is total.
+// The function is called on user-supplied input (CLI flag or TUI form),
+// so a panic here would be a CVE-class regression.
+func FuzzParseScheduleInterval(f *testing.F) {
+	for _, seed := range []string{
+		"@hourly",
+		"@every 5m",
+		"@every notaduration",
+		"",
+		"   ",
+		"*/5 * * * *",
+		"@every -1h",
+		strings.Repeat("@", 1000),
+	} {
+		f.Add(seed)
+	}
+	f.Fuzz(func(t *testing.T, in string) {
+		_, _ = ParseScheduleInterval(in)
+	})
+}
+
 func TestScheduleIntervalIsEmpty(t *testing.T) {
 	t.Parallel()
 	if !(ScheduleInterval{}).IsEmpty() {

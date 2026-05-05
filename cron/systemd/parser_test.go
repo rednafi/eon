@@ -127,6 +127,27 @@ func TestParseUnitOutsideAnySection(t *testing.T) {
 	}
 }
 
+// FuzzParseUnit asserts the unit parser is total. Surface-area is small
+// (it only cares about line-shape) but it's invoked on user-controlled
+// content (drop-in service files), so worth fuzzing.
+func FuzzParseUnit(f *testing.F) {
+	for _, seed := range []string{
+		"",
+		"[Service]\nExecStart=/bin/foo\n",
+		"# comment\n; another\n",
+		"[Unit]\n[Service]\n[Install]\n",
+		"orphan=value\n",
+		"=novalue\n",
+		"[no-close-bracket\n",
+		"section]without-open\n",
+	} {
+		f.Add(seed)
+	}
+	f.Fuzz(func(t *testing.T, content string) {
+		_ = parseUnit(content) // must not panic
+	})
+}
+
 func TestPrefixedAddsPrefixWhenNonEmpty(t *testing.T) {
 	t.Parallel()
 	if got := prefixed("every ", "5min"); got != "every 5min" {

@@ -256,6 +256,51 @@ func TestEtcCronDeleteIsAlwaysErrNotFound(t *testing.T) {
 	}
 }
 
+// FuzzSplitEtcCrontabLine asserts the 6-field /etc/crontab line parser is
+// total. Same seeded fixtures as the user crontab fuzzer, with extras for
+// the additional user column.
+func FuzzSplitEtcCrontabLine(f *testing.F) {
+	for _, seed := range []string{
+		"",
+		"17 * * * * root run-parts --report /etc/cron.hourly",
+		"@daily backup /bin/x",
+		"@reboot root /bin/x",
+		"too few",
+		"\t\t\t\t\t\t\t",
+		strings.Repeat("0 9 * * 1 root /bin/foo\n", 50),
+	} {
+		f.Add(seed)
+	}
+	f.Fuzz(func(t *testing.T, line string) {
+		if strings.ContainsRune(line, 0) {
+			t.Skip()
+		}
+		_, _, _, _ = splitEtcCrontabLine(line)
+	})
+}
+
+// FuzzEtcCronParseFile stresses the file-level parser through parseFile.
+// Property: every emitted Job has the "crontab-system:" ID prefix.
+func FuzzEtcCronParseFile(f *testing.F) {
+	for _, seed := range []string{
+		"",
+		"SHELL=/bin/sh\n0 0 * * * root /bin/x\n",
+		"# comment\nMAILTO=\"\"\n",
+		"@daily backup /bin/y\n",
+	} {
+		f.Add(seed)
+	}
+	src := New()
+	f.Fuzz(func(t *testing.T, content string) {
+		jobs := src.parseFile("/synthetic", []byte(content), "fuzz")
+		for _, j := range jobs {
+			if !strings.HasPrefix(j.ID, "crontab-system:") {
+				t.Errorf("malformed ID: %q (input %q)", j.ID, content)
+			}
+		}
+	})
+}
+
 func TestEtcCronNameAndScope(t *testing.T) {
 	t.Parallel()
 	src := New()

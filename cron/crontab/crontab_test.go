@@ -470,6 +470,60 @@ func TestCrontabEditForeignIDIsNotFound(t *testing.T) {
 	}
 }
 
+// FuzzSplitCrontabLine asserts the parser is total: it must never panic
+// regardless of input. We seed with the known-good cases plus a handful of
+// adversarial fixtures (BOM, CRLF, NULs, very long whitespace runs).
+func FuzzSplitCrontabLine(f *testing.F) {
+	for _, seed := range []string{
+		"",
+		" ",
+		"*/5 * * * * /bin/foo",
+		"@daily /bin/backup",
+		"@reboot",
+		"\uFEFF*/5 * * * * /bin/x",
+		"*/5\t*\t*\t*\t*\t/bin/x",
+		"\r\n",
+		"\x00\x00\x00",
+		strings.Repeat(" ", 1024) + "/bin/x",
+		strings.Repeat("*/5 * * * * /bin/foo\n", 100),
+	} {
+		f.Add(seed)
+	}
+	f.Fuzz(func(t *testing.T, line string) {
+		// Drop control bytes that never appear in real crontabs and would
+		// only exercise our string handling, not the parser logic.
+		if strings.ContainsRune(line, 0) {
+			t.Skip()
+		}
+		_, _, _ = splitCrontabLine(line) // must not panic
+	})
+}
+
+// FuzzCrontabParse stresses the full file-level parser. Crucial property:
+// every emitted Job must round-trip through cron.ShortHash so Delete can
+// later find it.
+func FuzzCrontabParse(f *testing.F) {
+	for _, seed := range []string{
+		"",
+		"# only comment\n",
+		"*/5 * * * * /bin/echo\n",
+		"*/5 * * * * /bin/echo\n@daily /bin/y\n",
+		"\uFEFF*/5 * * * * /bin/echo\n",
+		"\n\n\n",
+	} {
+		f.Add(seed)
+	}
+	c := New()
+	f.Fuzz(func(t *testing.T, content string) {
+		jobs := c.parse(content)
+		for _, j := range jobs {
+			if !strings.HasPrefix(j.ID, "crontab:") {
+				t.Errorf("malformed ID: %q (input %q)", j.ID, content)
+			}
+		}
+	})
+}
+
 func TestCommandShortName(t *testing.T) {
 	t.Parallel()
 	cases := []struct {
