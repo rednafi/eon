@@ -1,20 +1,21 @@
-// Package cron exposes the eon domain types and the per-platform Source
-// implementations. A Source produces Jobs from one backend (crontab, launchd,
-// systemd, …); the Manager fans calls out across them. Everything that
-// classifies, displays, or mutates a cron lives here so the CLI and TUI can
-// stay narrow.
+// Package cron is a small, embeddable library for monitoring and mutating
+// the cron-style jobs on a host. It exposes one interface — Source — that
+// every backend (crontab, launchd, systemd, /etc/crontab, …) implements.
+// Manager fans List / Find / Add / Edit / Delete calls across a set of
+// Sources so callers can treat heterogeneous schedulers as one.
+//
+// The package has no dependency on cli/ or tui/: everything in eon's CLI
+// and TUI is built on top of cron.Manager + the public types here, and the
+// same API is sufficient for any other consumer (a daemon, a webhook, a
+// batch tool).
+//
+// Backend authors will also want cron/spec.go (validation + portable
+// schedule DSL) and cron/helpers.go (LineScanner, ShortHash, …).
 package cron
 
 import (
-	"bufio"
-	"cmp"
 	"context"
-	"crypto/sha1"
-	"encoding/hex"
 	"errors"
-	"fmt"
-	"slices"
-	"strings"
 	"time"
 )
 
@@ -29,9 +30,8 @@ const (
 )
 
 // Scope distinguishes user-writable jobs from read-only OS-installed ones.
-// The Manager attaches the owning Source's scope to every Job it returns,
-// so callers can filter on Job.Scope without knowing which Source produced
-// it.
+// Manager attaches the owning Source's scope to every Job it returns, so
+// callers can filter on Job.Scope without knowing which Source produced it.
 type Scope string
 
 const (
@@ -71,28 +71,21 @@ type Job struct {
 }
 
 // Source enumerates and (when writable) mutates jobs from one backend.
+// Implement Source to plug a new scheduler in: Manager will then fan out
+// List / Find / Delete to it like any built-in backend. To opt into
+// Manager.Add / Manager.Edit, additionally implement Mutator.
 type Source interface {
 	// Name returns a short, stable identifier (e.g. "crontab", "launchd-user").
 	Name() string
 	// Scope reports whether this Source is user-writable or system-readonly.
-	// The Manager stamps every Job with its owning Source's scope.
+	// Manager stamps every Job with its owning Source's scope.
 	Scope() Scope
 	// List returns the current snapshot of jobs.
 	List(ctx context.Context) ([]Job, error)
 	// Delete removes a job by ID. Idempotent: deleting an already-gone job
-	// returns ErrNotFound. Read-only Sources may return a sentinel error.
+	// returns ErrNotFound. Read-only Sources return a non-nil error.
 	Delete(ctx context.Context, id string) error
 }
-
-// ErrNotFound is returned by Source.Delete and Mutator.Edit when no
-// matching job exists.
-var ErrNotFound = errors.New("job not found")
-
-// ErrReadOnly indicates an attempt to mutate a Source that doesn't
-// implement Mutator (or for which Mutator returns a guard error). Callers
-// should fall through to a writable Source rather than treating this as
-// fatal — same shape as ErrNotFound.
-var ErrReadOnly = errors.New("source is read-only")
 
 // JobSpec carries the minimum a writable Source needs to create or replace
 // a job. It is intentionally backend-agnostic: sources translate Schedule
@@ -118,217 +111,12 @@ type Mutator interface {
 	Edit(ctx context.Context, id string, spec JobSpec) (Job, error)
 }
 
-// Manager fans calls out across multiple Sources.
-type Manager struct {
-	sources []Source
-}
+// ErrNotFound is returned by Source.Delete and Mutator.Edit when no
+// matching job exists.
+var ErrNotFound = errors.New("job not found")
 
-// NewManager bundles the given Sources into a Manager. Order matters: it
-// determines the order of fan-out for List/Find/Delete, and it shows up in
-// SourceNames() which the TUI displays.
-func NewManager(sources ...Source) *Manager { return &Manager{sources: sources} }
-
-// Sources exposes the underlying Sources for diagnostics and TUI labels.
-// Returns a defensive copy so callers can't mutate Manager state by
-// reassigning into the returned slice (the Source pointers themselves
-// remain shared — that's the point of fan-out).
-func (m *Manager) Sources() []Source { return slices.Clone(m.sources) }
-
-// SourceNames returns one Name per Source, in registration order.
-func (m *Manager) SourceNames() []string {
-	out := make([]string, len(m.sources))
-	for i, s := range m.sources {
-		out[i] = s.Name()
-	}
-	return out
-}
-
-// List aggregates jobs from every Source. Per-Source errors are returned
-// alongside the jobs that did succeed — a broken crontab parser shouldn't
-// hide healthy launchd entries.
-func (m *Manager) List(ctx context.Context) ([]Job, []error) {
-	var (
-		all  []Job
-		errs []error
-	)
-	for _, s := range m.sources {
-		jobs, err := s.List(ctx)
-		if err != nil {
-			errs = append(errs, fmt.Errorf("%s: %w", s.Name(), err))
-			continue
-		}
-		scope := s.Scope()
-		for i := range jobs {
-			// Don't clobber a Scope the Source already set; this lets test
-			// fakes return mixed-scope job sets without subclassing the Source.
-			if jobs[i].Scope == "" {
-				jobs[i].Scope = scope
-			}
-		}
-		all = append(all, jobs...)
-	}
-	slices.SortFunc(all, func(a, b Job) int {
-		if c := cmp.Compare(a.Kind, b.Kind); c != 0 {
-			return c
-		}
-		return cmp.Compare(a.Name, b.Name)
-	})
-	return all, errs
-}
-
-// Find resolves a job by ID across all Sources. Exact ID match wins; otherwise
-// a case-insensitive substring match on ID, Name, or Command must produce
-// exactly one hit. An empty idOrPrefix is rejected — strings.Contains(_, "")
-// is true for every Job, which would surface as a confusing "ambiguous"
-// error rather than the obvious "you didn't pass an ID".
-func (m *Manager) Find(ctx context.Context, idOrPrefix string) (Job, error) {
-	if strings.TrimSpace(idOrPrefix) == "" {
-		return Job{}, fmt.Errorf("id or unique prefix required")
-	}
-	jobs, _ := m.List(ctx)
-	if i := slices.IndexFunc(jobs, func(j Job) bool { return j.ID == idOrPrefix }); i >= 0 {
-		return jobs[i], nil
-	}
-	q := strings.ToLower(idOrPrefix)
-	var matches []Job
-	for _, j := range jobs {
-		if strings.Contains(strings.ToLower(j.ID), q) ||
-			strings.Contains(strings.ToLower(j.Name), q) ||
-			strings.Contains(strings.ToLower(j.Command), q) {
-			matches = append(matches, j)
-		}
-	}
-	switch len(matches) {
-	case 0:
-		return Job{}, ErrNotFound
-	case 1:
-		return matches[0], nil
-	default:
-		return Job{}, fmt.Errorf("ambiguous: %d jobs match %q", len(matches), idOrPrefix)
-	}
-}
-
-// Add creates a job in the Source whose Name matches sourceName. If
-// sourceName is empty, the first writable Mutator Source wins — so users
-// can run `eon add` without knowing the backend. Returns the created Job.
-func (m *Manager) Add(ctx context.Context, sourceName string, spec JobSpec) (Job, error) {
-	s, err := m.pickWritable(sourceName)
-	if err != nil {
-		return Job{}, err
-	}
-	j, err := s.(Mutator).Add(ctx, spec)
-	if err != nil {
-		return Job{}, err
-	}
-	if j.Scope == "" {
-		j.Scope = s.Scope()
-	}
-	return j, nil
-}
-
-// pickWritable returns the Source we should target for an Add. With a
-// specific name we either return that source (if it's a Mutator) or a
-// targeted error. With no name, the first writable Source wins.
-func (m *Manager) pickWritable(sourceName string) (Source, error) {
-	if sourceName != "" {
-		for _, s := range m.sources {
-			if s.Name() != sourceName {
-				continue
-			}
-			if _, ok := s.(Mutator); !ok {
-				return nil, fmt.Errorf("%s: %w", s.Name(), ErrReadOnly)
-			}
-			return s, nil
-		}
-		return nil, fmt.Errorf("source %q not found", sourceName)
-	}
-	for _, s := range m.sources {
-		if _, ok := s.(Mutator); ok {
-			return s, nil
-		}
-	}
-	return nil, ErrReadOnly
-}
-
-// Edit replaces the schedule/command of an existing job. The owning Source
-// is whichever one claims the ID — we walk the chain like Delete.
-func (m *Manager) Edit(ctx context.Context, id string, spec JobSpec) (Job, error) {
-	for _, s := range m.sources {
-		mut, ok := s.(Mutator)
-		if !ok {
-			continue
-		}
-		j, err := mut.Edit(ctx, id, spec)
-		if err == nil {
-			if j.Scope == "" {
-				j.Scope = s.Scope()
-			}
-			return j, nil
-		}
-		if !errors.Is(err, ErrNotFound) {
-			return Job{}, err
-		}
-	}
-	return Job{}, ErrNotFound
-}
-
-// Delete dispatches to the matching Source. Sources that don't recognise the
-// ID return ErrNotFound; we walk the chain until one accepts.
-func (m *Manager) Delete(ctx context.Context, id string) error {
-	for _, s := range m.sources {
-		err := s.Delete(ctx, id)
-		if err == nil {
-			return nil
-		}
-		if !errors.Is(err, ErrNotFound) {
-			return err
-		}
-	}
-	return ErrNotFound
-}
-
-// ShortHash returns a stable 8-hex-char fingerprint of s. Sources use it for
-// Job IDs that need to survive reordering of unrelated lines (crontab
-// rewrites, cron.d drop-ins) — exported so every backend computes IDs the
-// same way and the CLI/TUI can rely on shape.
-func ShortHash(s string) string {
-	sum := sha1.Sum([]byte(s))
-	return hex.EncodeToString(sum[:4])
-}
-
-// LineScanner returns a bufio.Scanner over s with the buffer pre-sized to
-// 1 MB. Every backend's parser tokenises configuration files line-by-line
-// and the default 64 KB buffer truncates pathological-but-real entries
-// (long PATH= preludes in /etc/crontab, multi-arg ProgramArguments). One
-// helper means one place to bump the cap.
-func LineScanner(s string) *bufio.Scanner {
-	const maxLine = 1 << 20
-	scanner := bufio.NewScanner(strings.NewReader(s))
-	scanner.Buffer(make([]byte, maxLine), maxLine)
-	return scanner
-}
-
-// CommandShortName returns a readable label for a shell command: the
-// basename of the first non-assignment token. Sources use it to populate
-// Job.Name when no native label exists (crontab lines, cron.d entries).
-//
-// A trailing slash on the path (e.g. "/usr/local/bin/") would slice past
-// the end of the string in a naive LastIndex implementation; we trim it
-// first so the label falls back to the parent segment ("bin") rather than
-// the empty string.
-func CommandShortName(cmd string) string {
-	for tok := range strings.FieldsSeq(cmd) {
-		if strings.Contains(tok, "=") {
-			continue
-		}
-		tok = strings.TrimRight(tok, "/")
-		if tok == "" {
-			continue
-		}
-		if i := strings.LastIndex(tok, "/"); i >= 0 {
-			return tok[i+1:]
-		}
-		return tok
-	}
-	return cmd
-}
+// ErrReadOnly indicates an attempt to mutate a Source that doesn't
+// implement Mutator (or for which Mutator returns a guard error). Callers
+// should fall through to a writable Source rather than treating this as
+// fatal — same shape as ErrNotFound.
+var ErrReadOnly = errors.New("source is read-only")
