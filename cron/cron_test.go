@@ -232,6 +232,127 @@ func TestCommandShortNameSkipsEnvAssignments(t *testing.T) {
 // The default Manager.List sort is (Kind, Name). Two jobs that share a Kind
 // must order by Name regardless of which Source produced them, so the user
 // can scan a crontab list alphabetically.
+// mutOrigin extends stubOrigin with cron.Mutator semantics — used to test
+// Manager.Add / Manager.Edit fan-out without coupling to a real backend.
+type mutOrigin struct {
+	stubOrigin
+	addCalls  []JobSpec
+	editCalls map[string]JobSpec
+}
+
+func (m *mutOrigin) Add(_ context.Context, spec JobSpec) (Job, error) {
+	m.addCalls = append(m.addCalls, spec)
+	j := Job{ID: "added:" + ShortHash(spec.Command), Kind: KindCrontab, Name: spec.Command, Schedule: spec.Schedule, Command: spec.Command}
+	m.jobs = append(m.jobs, j)
+	return j, nil
+}
+
+func (m *mutOrigin) Edit(_ context.Context, id string, spec JobSpec) (Job, error) {
+	if m.editCalls == nil {
+		m.editCalls = map[string]JobSpec{}
+	}
+	for i, j := range m.jobs {
+		if j.ID == id {
+			m.jobs[i].Schedule = spec.Schedule
+			m.jobs[i].Command = spec.Command
+			m.editCalls[id] = spec
+			return m.jobs[i], nil
+		}
+	}
+	return Job{}, ErrNotFound
+}
+
+func TestManagerAddRoutesToNamedSource(t *testing.T) {
+	t.Parallel()
+	a := &mutOrigin{stubOrigin: stubOrigin{name: "a"}}
+	b := &mutOrigin{stubOrigin: stubOrigin{name: "b"}}
+	mgr := NewManager(a, b)
+	j, err := mgr.Add(t.Context(), "b", JobSpec{Schedule: "@daily", Command: "/bin/echo hi"})
+	if err != nil {
+		t.Fatalf("add: %v", err)
+	}
+	if j.Command != "/bin/echo hi" {
+		t.Errorf("returned job command = %q", j.Command)
+	}
+	if len(a.addCalls) != 0 {
+		t.Errorf("source a should not have been called: %v", a.addCalls)
+	}
+	if len(b.addCalls) != 1 {
+		t.Errorf("source b should have received the add")
+	}
+}
+
+func TestManagerAddDefaultsToFirstWritable(t *testing.T) {
+	t.Parallel()
+	ro := &stubOrigin{name: "readonly"}
+	mut := &mutOrigin{stubOrigin: stubOrigin{name: "writable"}}
+	mgr := NewManager(ro, mut)
+	if _, err := mgr.Add(t.Context(), "", JobSpec{Schedule: "@daily", Command: "/bin/foo"}); err != nil {
+		t.Fatalf("add: %v", err)
+	}
+	if len(mut.addCalls) != 1 {
+		t.Errorf("first writable Source should have received the add")
+	}
+}
+
+func TestManagerAddNamedNonMutatorIsReadOnlyError(t *testing.T) {
+	t.Parallel()
+	ro := &stubOrigin{name: "readonly"}
+	mut := &mutOrigin{stubOrigin: stubOrigin{name: "writable"}}
+	mgr := NewManager(ro, mut)
+	_, err := mgr.Add(t.Context(), "readonly", JobSpec{Schedule: "@daily", Command: "/bin/x"})
+	if !errors.Is(err, ErrReadOnly) {
+		t.Errorf("want ErrReadOnly, got %v", err)
+	}
+	if len(mut.addCalls) != 0 {
+		t.Errorf("named-but-readonly should not fall through: %v", mut.addCalls)
+	}
+}
+
+func TestManagerAddUnknownNameErrors(t *testing.T) {
+	t.Parallel()
+	mgr := NewManager(&mutOrigin{stubOrigin: stubOrigin{name: "writable"}})
+	_, err := mgr.Add(t.Context(), "nope", JobSpec{Schedule: "@daily", Command: "/bin/x"})
+	if err == nil || !strings.Contains(err.Error(), "not found") {
+		t.Errorf("unknown source: want not-found error, got %v", err)
+	}
+}
+
+func TestManagerAddNoMutatorAvailable(t *testing.T) {
+	t.Parallel()
+	mgr := NewManager(&stubOrigin{name: "ro"})
+	_, err := mgr.Add(t.Context(), "", JobSpec{Schedule: "@daily", Command: "/bin/x"})
+	if !errors.Is(err, ErrReadOnly) {
+		t.Errorf("want ErrReadOnly when no Mutator present, got %v", err)
+	}
+}
+
+func TestManagerEditRoutesToOwningSource(t *testing.T) {
+	t.Parallel()
+	a := &mutOrigin{stubOrigin: stubOrigin{name: "a", jobs: []Job{{ID: "a:1", Schedule: "@daily", Command: "/bin/a"}}}}
+	b := &mutOrigin{stubOrigin: stubOrigin{name: "b", jobs: []Job{{ID: "b:1", Schedule: "@daily", Command: "/bin/b"}}}}
+	mgr := NewManager(a, b)
+	j, err := mgr.Edit(t.Context(), "b:1", JobSpec{Schedule: "@hourly", Command: "/bin/new"})
+	if err != nil {
+		t.Fatalf("edit: %v", err)
+	}
+	if j.Schedule != "@hourly" || j.Command != "/bin/new" {
+		t.Errorf("edit didn't replace fields: %+v", j)
+	}
+	if _, ok := b.editCalls["b:1"]; !ok {
+		t.Errorf("source b should have received the edit")
+	}
+}
+
+func TestManagerEditUnknownIDReturnsNotFound(t *testing.T) {
+	t.Parallel()
+	mgr := NewManager(&mutOrigin{stubOrigin: stubOrigin{name: "a", jobs: []Job{{ID: "a:1"}}}})
+	_, err := mgr.Edit(t.Context(), "ghost", JobSpec{Schedule: "@daily", Command: "/bin/x"})
+	if !errors.Is(err, ErrNotFound) {
+		t.Errorf("want ErrNotFound, got %v", err)
+	}
+}
+
 func TestManagerListSortsByKindThenName(t *testing.T) {
 	t.Parallel()
 	a := &stubOrigin{name: "a", jobs: []Job{

@@ -331,6 +331,145 @@ SHELL=/bin/bash
 	}
 }
 
+// Add appends a line and reports the new Job. The runner should have seen
+// a "crontab -" call with the previous content + new line.
+func TestCrontabAddAppendsLine(t *testing.T) {
+	t.Parallel()
+	f := &fakeCrontab{content: "*/5 * * * * /bin/old\n"}
+	c := New()
+	c.Runner = f.run
+	j, err := c.Add(t.Context(), cron.JobSpec{Schedule: "@daily", Command: "/bin/new"})
+	if err != nil {
+		t.Fatalf("add: %v", err)
+	}
+	if !strings.Contains(j.ID, "crontab:") {
+		t.Errorf("returned job ID lacks prefix: %q", j.ID)
+	}
+	if j.Schedule != "@daily" || j.Command != "/bin/new" {
+		t.Errorf("returned job fields wrong: %+v", j)
+	}
+	if !strings.Contains(f.content, "/bin/old") || !strings.Contains(f.content, "/bin/new") {
+		t.Errorf("crontab missing both lines: %q", f.content)
+	}
+}
+
+// Add against an empty crontab must not produce a leading blank line.
+// `crontab -l` returns "no crontab for $user" on empty, which the fake
+// translates to empty content.
+func TestCrontabAddIntoEmpty(t *testing.T) {
+	t.Parallel()
+	f := &fakeCrontab{content: ""}
+	c := New()
+	c.Runner = f.run
+	if _, err := c.Add(t.Context(), cron.JobSpec{Schedule: "*/15 * * * *", Command: "/bin/echo first"}); err != nil {
+		t.Fatalf("add: %v", err)
+	}
+	if strings.HasPrefix(f.content, "\n") {
+		t.Errorf("empty-crontab add produced leading blank: %q", f.content)
+	}
+	if !strings.HasSuffix(f.content, "\n") {
+		t.Errorf("crontab body must end in newline: %q", f.content)
+	}
+}
+
+// Add must reject empty schedule, empty command, command containing a
+// newline, and schedules that the cron lib can't parse — none of those
+// should ever land in the spool.
+func TestCrontabAddRejectsInvalidSpec(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		name string
+		spec cron.JobSpec
+	}{
+		{"empty schedule", cron.JobSpec{Schedule: "", Command: "/bin/foo"}},
+		{"whitespace schedule", cron.JobSpec{Schedule: "   ", Command: "/bin/foo"}},
+		{"empty command", cron.JobSpec{Schedule: "@daily", Command: ""}},
+		{"newline in command", cron.JobSpec{Schedule: "@daily", Command: "/bin/foo\nrm -rf /"}},
+		{"unparseable schedule", cron.JobSpec{Schedule: "every blue moon", Command: "/bin/foo"}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			f := &fakeCrontab{content: "*/5 * * * * /bin/old\n"}
+			c := New()
+			c.Runner = f.run
+			if _, err := c.Add(t.Context(), tc.spec); err == nil {
+				t.Errorf("expected validation error for %+v", tc.spec)
+			}
+			if !strings.HasSuffix(f.content, "/bin/old\n") {
+				t.Errorf("crontab mutated despite validation failure: %q", f.content)
+			}
+		})
+	}
+}
+
+// Edit replaces the targeted line in place — surrounding lines and
+// comments stay where they were. ID after edit changes (different hash).
+func TestCrontabEditReplacesLineInPlace(t *testing.T) {
+	t.Parallel()
+	f := &fakeCrontab{content: "# header\n*/5 * * * * /bin/old\n@reboot /bin/sticky\n"}
+	c := New()
+	c.Runner = f.run
+	jobs, _ := c.List(t.Context())
+	var target cron.Job
+	for _, j := range jobs {
+		if strings.Contains(j.Command, "/bin/old") {
+			target = j
+		}
+	}
+	if target.ID == "" {
+		t.Fatalf("setup: target job not found")
+	}
+	newJob, err := c.Edit(t.Context(), target.ID, cron.JobSpec{Schedule: "@hourly", Command: "/bin/new"})
+	if err != nil {
+		t.Fatalf("edit: %v", err)
+	}
+	if newJob.Schedule != "@hourly" || newJob.Command != "/bin/new" {
+		t.Errorf("edit fields wrong: %+v", newJob)
+	}
+	for _, want := range []string{"# header", "/bin/new", "/bin/sticky"} {
+		if !strings.Contains(f.content, want) {
+			t.Errorf("crontab missing %q after edit:\n%s", want, f.content)
+		}
+	}
+	if strings.Contains(f.content, "/bin/old") {
+		t.Errorf("old command not removed:\n%s", f.content)
+	}
+	// The new ID should differ from the old (different hash).
+	if newJob.ID == target.ID {
+		t.Errorf("edited line should have a new ID hash; got the same: %q", newJob.ID)
+	}
+}
+
+// Edit with an unrecognised ID returns ErrNotFound and does not touch
+// the spool — Manager.Edit fan-out depends on this.
+func TestCrontabEditUnknownIDIsNotFound(t *testing.T) {
+	t.Parallel()
+	f := &fakeCrontab{content: "*/5 * * * * /bin/foo\n"}
+	c := New()
+	c.Runner = f.run
+	_, err := c.Edit(t.Context(), "crontab:deadbeef", cron.JobSpec{Schedule: "@daily", Command: "/bin/new"})
+	if !errors.Is(err, cron.ErrNotFound) {
+		t.Errorf("want ErrNotFound, got %v", err)
+	}
+	if !strings.Contains(f.content, "/bin/foo") {
+		t.Errorf("crontab mutated despite ErrNotFound: %q", f.content)
+	}
+}
+
+// Edit ID without "crontab:" prefix is foreign — must be ErrNotFound, not
+// a fall-through that touches the spool.
+func TestCrontabEditForeignIDIsNotFound(t *testing.T) {
+	t.Parallel()
+	f := &fakeCrontab{content: "*/5 * * * * /bin/foo\n"}
+	c := New()
+	c.Runner = f.run
+	_, err := c.Edit(t.Context(), "launchd:com.example.foo", cron.JobSpec{Schedule: "@daily", Command: "/bin/new"})
+	if !errors.Is(err, cron.ErrNotFound) {
+		t.Errorf("want ErrNotFound, got %v", err)
+	}
+}
+
 func TestCommandShortName(t *testing.T) {
 	t.Parallel()
 	cases := []struct {

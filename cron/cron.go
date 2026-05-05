@@ -83,8 +83,39 @@ type Source interface {
 	Delete(ctx context.Context, id string) error
 }
 
-// ErrNotFound is returned by Source.Delete when no matching job exists.
+// ErrNotFound is returned by Source.Delete and Mutator.Edit when no
+// matching job exists.
 var ErrNotFound = errors.New("job not found")
+
+// ErrReadOnly indicates an attempt to mutate a Source that doesn't
+// implement Mutator (or for which Mutator returns a guard error). Callers
+// should fall through to a writable Source rather than treating this as
+// fatal — same shape as ErrNotFound.
+var ErrReadOnly = errors.New("source is read-only")
+
+// JobSpec carries the minimum a writable Source needs to create or replace
+// a job. It is intentionally backend-agnostic: sources translate Schedule
+// + Command into their own native representation (a crontab line, a
+// launchd plist, a systemd unit pair).
+type JobSpec struct {
+	// Schedule is the cron expression or descriptor (e.g. "*/5 * * * *",
+	// "@daily"). Sources reject inputs they can't parse.
+	Schedule string
+	// Command is the full shell command to run.
+	Command string
+}
+
+// Mutator is implemented by Sources that can create or edit jobs. Sources
+// that don't satisfy Mutator are necessarily read-only for these
+// operations — Manager.Add / Manager.Edit return ErrReadOnly when no
+// Source claims the request.
+//
+// Add returns the freshly created Job (so callers can show its ID).
+// Edit must route on the same ID shape that Delete recognises.
+type Mutator interface {
+	Add(ctx context.Context, spec JobSpec) (Job, error)
+	Edit(ctx context.Context, id string, spec JobSpec) (Job, error)
+}
 
 // Manager fans calls out across multiple Sources.
 type Manager struct {
@@ -166,6 +197,58 @@ func (m *Manager) Find(ctx context.Context, idOrPrefix string) (Job, error) {
 	default:
 		return Job{}, fmt.Errorf("ambiguous: %d jobs match %q", len(matches), idOrPrefix)
 	}
+}
+
+// Add creates a job in the Source whose Name matches sourceName. If
+// sourceName is empty, the first writable Mutator Source wins — so users
+// can run `eon add` without knowing the backend. Returns the created Job.
+func (m *Manager) Add(ctx context.Context, sourceName string, spec JobSpec) (Job, error) {
+	for _, s := range m.sources {
+		if sourceName != "" && s.Name() != sourceName {
+			continue
+		}
+		mut, ok := s.(Mutator)
+		if !ok {
+			if sourceName != "" {
+				return Job{}, fmt.Errorf("%s: %w", s.Name(), ErrReadOnly)
+			}
+			continue
+		}
+		j, err := mut.Add(ctx, spec)
+		if err != nil {
+			return Job{}, err
+		}
+		if j.Scope == "" {
+			j.Scope = s.Scope()
+		}
+		return j, nil
+	}
+	if sourceName != "" {
+		return Job{}, fmt.Errorf("source %q not found", sourceName)
+	}
+	return Job{}, ErrReadOnly
+}
+
+// Edit replaces the schedule/command of an existing job. The owning Source
+// is whichever one claims the ID — we walk the chain like Delete.
+func (m *Manager) Edit(ctx context.Context, id string, spec JobSpec) (Job, error) {
+	for _, s := range m.sources {
+		mut, ok := s.(Mutator)
+		if !ok {
+			continue
+		}
+		j, err := mut.Edit(ctx, id, spec)
+		if err == nil {
+			if j.Scope == "" {
+				j.Scope = s.Scope()
+			}
+			return j, nil
+		}
+		if !errors.Is(err, ErrNotFound) {
+			return Job{}, err
+		}
+	}
+	return Job{}, ErrNotFound
 }
 
 // Delete dispatches to the matching Source. Sources that don't recognise the

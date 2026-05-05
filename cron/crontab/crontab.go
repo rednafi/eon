@@ -15,10 +15,14 @@ import (
 	"github.com/rednafi/eon/cron"
 )
 
-// Compile-time guard: Crontab satisfies cron.Source. If a Source method is
-// renamed or its signature drifts, the package fails to build instead of
-// surfacing as "missing method" at the first cron.NewManager(...) call.
-var _ cron.Source = (*Crontab)(nil)
+// Compile-time guards: Crontab satisfies cron.Source and cron.Mutator. If
+// a method is renamed or its signature drifts, the package fails to build
+// instead of surfacing as "missing method" at the first cron.NewManager
+// or cron.Manager.Add call.
+var (
+	_ cron.Source  = (*Crontab)(nil)
+	_ cron.Mutator = (*Crontab)(nil)
+)
 
 // CrontabRunner runs the `crontab` binary. The function returns the bytes of
 // stdout for read-style invocations and may also write stdin for replace-style
@@ -105,6 +109,98 @@ func (c *Crontab) parse(content string) []cron.Job {
 		jobs = append(jobs, j)
 	}
 	return jobs
+}
+
+// Add implements cron.Mutator. The new line is appended to the user's
+// crontab and identified by its ShortHash on subsequent List() calls.
+func (c *Crontab) Add(ctx context.Context, spec cron.JobSpec) (cron.Job, error) {
+	if err := validateSpec(c.parser, spec); err != nil {
+		return cron.Job{}, err
+	}
+	out, err := c.Runner(ctx, []string{"-l"}, "")
+	if err != nil {
+		return cron.Job{}, err
+	}
+	existing := strings.TrimRight(string(out), "\n")
+	line := strings.TrimSpace(spec.Schedule) + " " + strings.TrimSpace(spec.Command)
+	body := existing
+	if body != "" {
+		body += "\n"
+	}
+	body += line + "\n"
+	if _, err := c.Runner(ctx, []string{"-"}, body); err != nil {
+		return cron.Job{}, err
+	}
+	jobs := c.parse(line + "\n")
+	if len(jobs) == 0 {
+		return cron.Job{}, fmt.Errorf("crontab accepted line but reparse failed: %q", line)
+	}
+	return jobs[0], nil
+}
+
+// Edit implements cron.Mutator. We locate the line by its hash, replace it
+// in place (preserving position relative to other lines and comments), and
+// rewrite the crontab.
+func (c *Crontab) Edit(ctx context.Context, id string, spec cron.JobSpec) (cron.Job, error) {
+	target, ok := strings.CutPrefix(id, "crontab:")
+	if !ok {
+		return cron.Job{}, cron.ErrNotFound
+	}
+	if err := validateSpec(c.parser, spec); err != nil {
+		return cron.Job{}, err
+	}
+	out, err := c.Runner(ctx, []string{"-l"}, "")
+	if err != nil {
+		return cron.Job{}, err
+	}
+	newLine := strings.TrimSpace(spec.Schedule) + " " + strings.TrimSpace(spec.Command)
+	var (
+		kept    []string
+		matched bool
+	)
+	scanner := bufio.NewScanner(strings.NewReader(string(out)))
+	scanner.Buffer(make([]byte, 1024*1024), 1024*1024)
+	for scanner.Scan() {
+		line := scanner.Text()
+		trimmed := strings.TrimSpace(line)
+		if !matched && trimmed != "" && !strings.HasPrefix(trimmed, "#") && cron.ShortHash(line) == target {
+			kept = append(kept, newLine)
+			matched = true
+			continue
+		}
+		kept = append(kept, line)
+	}
+	if !matched {
+		return cron.Job{}, cron.ErrNotFound
+	}
+	replacement := strings.Join(kept, "\n") + "\n"
+	if _, err := c.Runner(ctx, []string{"-"}, replacement); err != nil {
+		return cron.Job{}, err
+	}
+	jobs := c.parse(newLine + "\n")
+	if len(jobs) == 0 {
+		return cron.Job{}, fmt.Errorf("crontab accepted line but reparse failed: %q", newLine)
+	}
+	return jobs[0], nil
+}
+
+// validateSpec rejects empty fields and unparseable schedules. Sources
+// must catch this *before* writing — silently accepting a bad spec is
+// worse than failing fast.
+func validateSpec(p cronspec.Parser, spec cron.JobSpec) error {
+	if strings.TrimSpace(spec.Schedule) == "" {
+		return fmt.Errorf("schedule must not be empty")
+	}
+	if strings.TrimSpace(spec.Command) == "" {
+		return fmt.Errorf("command must not be empty")
+	}
+	if strings.ContainsAny(spec.Command, "\r\n") {
+		return fmt.Errorf("command must not contain newlines")
+	}
+	if _, err := p.Parse(strings.TrimSpace(spec.Schedule)); err != nil {
+		return fmt.Errorf("invalid schedule %q: %w", spec.Schedule, err)
+	}
+	return nil
 }
 
 // Delete implements cron.Source. The line is identified by its ID hash so we don't
