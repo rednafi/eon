@@ -3,8 +3,10 @@
 package launchd
 
 import (
+	"bytes"
 	"cmp"
 	"context"
+	"encoding/xml"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -111,6 +113,10 @@ func (l *Launchd) List(ctx context.Context) ([]cron.Job, error) {
 		return nil, fmt.Errorf("read %s: %w", l.Dir, err)
 	}
 	var jobs []cron.Job
+	// seen prevents duplicate Job.IDs when two plist files in the same
+	// directory share a <Label>. The user can fix the underlying conflict
+	// from the filesystem; the listing should at least be deterministic.
+	seen := map[string]bool{}
 	for _, e := range entries {
 		if e.IsDir() || !strings.HasSuffix(e.Name(), ".plist") {
 			continue
@@ -120,6 +126,10 @@ func (l *Launchd) List(ctx context.Context) ([]cron.Job, error) {
 		if err != nil {
 			continue
 		}
+		if seen[j.ID] {
+			continue
+		}
+		seen[j.ID] = true
 		jobs = append(jobs, j)
 	}
 	// Enrich with launchctl-derived runtime state if the runner is set.
@@ -131,18 +141,16 @@ func (l *Launchd) List(ctx context.Context) ([]cron.Job, error) {
 }
 
 func (l *Launchd) readPlist(path string) (cron.Job, error) {
-	f, err := os.Open(path)
-	if err != nil {
-		return cron.Job{}, err
-	}
-	defer func() { _ = f.Close() }()
+	// One read, one decode. Earlier code opened the file twice (os.Open +
+	// os.ReadFile) which wasted a file descriptor and opened a TOCTOU
+	// window where the on-disk content could change between syscalls and
+	// produce a Job whose Raw and decoded fields disagreed.
 	raw, err := os.ReadFile(path)
 	if err != nil {
 		return cron.Job{}, err
 	}
 	var doc plistDoc
-	dec := plist.NewDecoder(f)
-	if err := dec.Decode(&doc); err != nil {
+	if err := plist.NewDecoder(bytes.NewReader(raw)).Decode(&doc); err != nil {
 		return cron.Job{}, err
 	}
 	label := cmp.Or(doc.Label, strings.TrimSuffix(filepath.Base(path), ".plist"))
@@ -181,10 +189,17 @@ func launchdStatus(doc plistDoc) string {
 }
 
 // formatLaunchdSchedule renders the plist's schedule keys into a one-line
-// description suitable for the list-view "SCHEDULE" column.
+// description suitable for the list-view "SCHEDULE" column. When *both*
+// StartInterval and StartCalendarInterval are set (rare but legal),
+// surface the additional calendar trigger count so the user isn't
+// misled about how many times the agent fires.
 func formatLaunchdSchedule(doc plistDoc) string {
 	if doc.StartInterval > 0 {
-		return formatInterval(doc.StartInterval)
+		base := formatInterval(doc.StartInterval)
+		if extras := calendarTriggers(doc.StartCalendarInterval); extras > 0 {
+			return fmt.Sprintf("%s + %d cal", base, extras)
+		}
+		return base
 	}
 	switch v := doc.StartCalendarInterval.(type) {
 	case map[string]any:
@@ -192,19 +207,43 @@ func formatLaunchdSchedule(doc plistDoc) string {
 			return formatCalendar(v)
 		}
 	case []any:
+		// Skip empty-dict entries: an `[{}]` plist is technically a calendar
+		// trigger that never fires, but rendering it as "* * * * *" would
+		// imply "every minute" which is the opposite of what launchd does.
 		if len(v) == 1 {
-			if m, ok := v[0].(map[string]any); ok {
+			if m, ok := v[0].(map[string]any); ok && len(m) > 0 {
 				return formatCalendar(m)
 			}
 		}
-		if len(v) > 1 {
-			return fmt.Sprintf("%d triggers", len(v))
+		if n := calendarTriggers(v); n > 1 {
+			return fmt.Sprintf("%d triggers", n)
 		}
 	}
 	if doc.RunAtLoad {
 		return "at load"
 	}
 	return "on-demand"
+}
+
+// calendarTriggers counts non-empty StartCalendarInterval entries. Returns
+// 0 for nil/missing values, 1 for a single-dict map, or N for the array
+// form (skipping empty dicts in the array).
+func calendarTriggers(v any) int {
+	switch x := v.(type) {
+	case map[string]any:
+		if len(x) > 0 {
+			return 1
+		}
+	case []any:
+		n := 0
+		for _, e := range x {
+			if m, ok := e.(map[string]any); ok && len(m) > 0 {
+				n++
+			}
+		}
+		return n
+	}
+	return 0
 }
 
 func formatInterval(s int) string {
@@ -254,11 +293,16 @@ func (l *Launchd) enrich(ctx context.Context, jobs []cron.Job) {
 	if err != nil {
 		return
 	}
-	byLabel := map[string]struct {
-		PID    int
-		Status int
-	}{}
-	for i, line := range strings.Split(string(out), "\n") {
+	type runtime struct {
+		PID, Status int
+		// haveStatus distinguishes "exited 0" (real run, success) from
+		// "never run" (status column was "-"). Without it, never-run jobs
+		// show as `exited 0`, which is misleading.
+		haveStatus bool
+	}
+	byLabel := map[string]runtime{}
+	// Tolerate CRLF — some hosts produce \r\n via wrappers. Split on either.
+	for i, line := range strings.Split(strings.ReplaceAll(string(out), "\r\n", "\n"), "\n") {
 		if i == 0 || strings.TrimSpace(line) == "" {
 			continue // header or blank
 		}
@@ -266,15 +310,15 @@ func (l *Launchd) enrich(ctx context.Context, jobs []cron.Job) {
 		if len(fields) < 3 {
 			continue
 		}
-		pid := 0
+		var r runtime
 		if fields[0] != "-" {
-			pid, _ = strconv.Atoi(fields[0])
+			r.PID, _ = strconv.Atoi(fields[0])
 		}
-		status, _ := strconv.Atoi(fields[1])
-		byLabel[fields[2]] = struct {
-			PID    int
-			Status int
-		}{PID: pid, Status: status}
+		if fields[1] != "-" {
+			r.Status, _ = strconv.Atoi(fields[1])
+			r.haveStatus = true
+		}
+		byLabel[fields[2]] = r
 	}
 	for i := range jobs {
 		if e, ok := byLabel[jobs[i].Name]; ok {
@@ -283,6 +327,9 @@ func (l *Launchd) enrich(ctx context.Context, jobs []cron.Job) {
 			switch {
 			case e.PID > 0:
 				jobs[i].Status = "running"
+			case !e.haveStatus:
+				// Status column was "-": the job has never run since last load.
+				jobs[i].Status = "never run"
 			case e.Status != 0:
 				jobs[i].Status = fmt.Sprintf("exited %d", e.Status)
 			}
@@ -383,17 +430,23 @@ func launchdLabel(command string) string {
 // schedule). We split the command on whitespace for ProgramArguments —
 // preserves quoting only as well as Fields() does, but launchd doesn't
 // honour shell quoting anyway, so a power user wanting `bash -c '...'` is
-// expected to author the plist by hand.
+// expected to author the plist by hand. Every user-supplied string flows
+// through xml.EscapeText so a label containing `&`, `<`, etc. doesn't
+// corrupt the file.
 func renderPlist(label, command string, interval cron.ScheduleInterval) string {
 	args := strings.Fields(command)
 	var b strings.Builder
 	b.WriteString(`<?xml version="1.0" encoding="UTF-8"?>` + "\n")
 	b.WriteString(`<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">` + "\n")
 	b.WriteString(`<plist version="1.0"><dict>` + "\n")
-	fmt.Fprintf(&b, "<key>Label</key><string>%s</string>\n", label)
+	b.WriteString("<key>Label</key><string>")
+	xmlEscape(&b, label)
+	b.WriteString("</string>\n")
 	b.WriteString("<key>ProgramArguments</key><array>\n")
 	for _, a := range args {
-		fmt.Fprintf(&b, "  <string>%s</string>\n", a)
+		b.WriteString("  <string>")
+		xmlEscape(&b, a)
+		b.WriteString("</string>\n")
 	}
 	b.WriteString("</array>\n")
 	seconds := intervalSeconds(interval)
@@ -401,6 +454,19 @@ func renderPlist(label, command string, interval cron.ScheduleInterval) string {
 	b.WriteString("</dict></plist>\n")
 	return b.String()
 }
+
+// xmlEscape writes s to b with `<`, `>`, `&`, `'`, `"` escaped per XML
+// 1.0 rules. We use the stdlib helper rather than rolling our own so a
+// new XML 1.1 quirk doesn't leak through silently.
+func xmlEscape(b *strings.Builder, s string) {
+	_ = xml.EscapeText(stringWriter{b}, []byte(s))
+}
+
+// stringWriter adapts strings.Builder to io.Writer so xml.EscapeText
+// (which needs an io.Writer) can target it without an intermediate buffer.
+type stringWriter struct{ *strings.Builder }
+
+func (w stringWriter) Write(p []byte) (int, error) { return w.Builder.Write(p) }
 
 // intervalSeconds collapses ScheduleInterval into seconds for StartInterval.
 // launchd's StartInterval is the only schedule key that's *truly* portable

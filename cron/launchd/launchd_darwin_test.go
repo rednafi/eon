@@ -4,6 +4,7 @@ package launchd
 
 import (
 	"context"
+	"encoding/xml"
 	"errors"
 	"fmt"
 	"os"
@@ -349,6 +350,116 @@ func TestLaunchdEnrichHandlesDashPID(t *testing.T) {
 	}
 	if jobs[0].Status != "exited 78" {
 		t.Errorf("status = %q, want %q", jobs[0].Status, "exited 78")
+	}
+}
+
+// `launchctl list` returns "-" in the Status column for jobs that have
+// never run since being loaded. The previous code's `strconv.Atoi("-")`
+// silently produced 0, which the renderer turned into "exited 0" — same
+// label as a successful exit. Verify "-" now produces a distinct
+// "never run" label.
+func TestLaunchdEnrichHandlesDashStatus(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "com.example.fresh.plist"), []byte(minimalPlist("com.example.fresh", 60)), 0o600); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	src := &Launchd{
+		Dir: dir,
+		Tag: "test",
+		Runner: func(_ context.Context, _ []string) ([]byte, error) {
+			return []byte("PID\tStatus\tLabel\n-\t-\tcom.example.fresh\n"), nil
+		},
+	}
+	jobs, err := src.List(t.Context())
+	if err != nil {
+		t.Fatalf("list: %v", err)
+	}
+	if jobs[0].Status != "never run" {
+		t.Errorf("Status = %q, want never run", jobs[0].Status)
+	}
+}
+
+// Plist files in the same dir that share a Label must not surface as
+// duplicate Job.IDs — listing should remain deterministic.
+func TestLaunchdDuplicateLabelsDeduped(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "a.plist"), []byte(minimalPlist("com.example.dup", 60)), 0o600); err != nil {
+		t.Fatalf("write a: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "b.plist"), []byte(minimalPlist("com.example.dup", 30)), 0o600); err != nil {
+		t.Fatalf("write b: %v", err)
+	}
+	src := &Launchd{Dir: dir, Tag: "test"}
+	jobs, err := src.List(t.Context())
+	if err != nil {
+		t.Fatalf("list: %v", err)
+	}
+	if len(jobs) != 1 {
+		t.Errorf("expected 1 job after dedup, got %d: %v", len(jobs), jobs)
+	}
+}
+
+// renderPlist must XML-escape user-supplied labels and commands so a
+// stray `<` doesn't corrupt the file. Verify with characters that XML 1.0
+// reserves: `<`, `>`, `&`, `"`, `'`. We assert by parsing the output as
+// XML — any leak would cause a parse error, which is the strictest
+// possible check.
+func TestLaunchdRenderPlistEscapesXML(t *testing.T) {
+	t.Parallel()
+	body := renderPlist(`eon.tricky&<label>`, `bash -c "echo a < b"`, cron.ScheduleInterval{Descriptor: "hourly"})
+	dec := xml.NewDecoder(strings.NewReader(body))
+	for {
+		_, err := dec.Token()
+		if err != nil {
+			if err.Error() == "EOF" {
+				break
+			}
+			t.Fatalf("rendered plist is not valid XML: %v\n%s", err, body)
+		}
+	}
+	// Spot-check that the escape sequences ended up in the right places.
+	for _, want := range []string{"&amp;", "&lt;label&gt;", "&#34;echo"} {
+		if !strings.Contains(body, want) {
+			t.Errorf("renderPlist missing escape %q:\n%s", want, body)
+		}
+	}
+}
+
+// formatLaunchdSchedule should treat an empty-dict array `[{}]` as
+// "no real trigger" rather than rendering it as "* * * * *", which would
+// imply the job fires every minute (the opposite of what launchd does).
+func TestFormatLaunchdScheduleSkipsEmptyDictArray(t *testing.T) {
+	t.Parallel()
+	doc := plistDoc{
+		StartCalendarInterval: []any{map[string]any{}},
+		RunAtLoad:             true,
+	}
+	got := formatLaunchdSchedule(doc)
+	if got == "* * * * *" {
+		t.Errorf("empty-dict array shouldn't render as a real schedule, got %q", got)
+	}
+	if got != "at load" {
+		t.Errorf("expected fallthrough to RunAtLoad, got %q", got)
+	}
+}
+
+// When BOTH StartInterval and a calendar are present, the schedule label
+// should mention both — otherwise the user is misled into thinking the
+// agent only fires every interval, missing the calendar triggers.
+func TestFormatLaunchdScheduleBothIntervalAndCalendar(t *testing.T) {
+	t.Parallel()
+	doc := plistDoc{
+		StartInterval: 60,
+		StartCalendarInterval: []any{
+			map[string]any{"Hour": 9},
+			map[string]any{"Hour": 17},
+		},
+	}
+	got := formatLaunchdSchedule(doc)
+	if !strings.Contains(got, "every 1m") || !strings.Contains(got, "+ 2 cal") {
+		t.Errorf("combined schedule wasn't surfaced, got %q", got)
 	}
 }
 
