@@ -20,7 +20,8 @@ import (
 	"slices"
 	"strconv"
 	"strings"
-	"sync"
+
+	"golang.org/x/sync/errgroup"
 
 	"github.com/rednafi/eon/cron"
 )
@@ -113,27 +114,27 @@ func (l *Launchd) List(ctx context.Context) ([]cron.Job, error) {
 	}
 	results := make([]cron.Job, len(paths))
 	ok := make([]bool, len(paths))
-	var wg sync.WaitGroup
-	sem := cron.FanoutSemaphore()
+	// Each List call gets its own errgroup with cron.FanoutLimit. A
+	// per-call budget avoids the nested-acquire deadlock you'd hit if
+	// Manager.List and Launchd.List shared a global semaphore: the
+	// Manager-level slot would be held while Launchd's children waited
+	// for slots in the same pool.
+	eg, ctx := errgroup.WithContext(ctx)
+	eg.SetLimit(cron.FanoutLimit)
 	for i, full := range paths {
-		// Sharing the Manager's budget means the system can't spike
-		// past cron.MaxConcurrency even if every launchd dir lists at
-		// once. Acquire blocks on the parent goroutine so we don't
-		// queue thousands of waiting workers.
-		if err := sem.Acquire(ctx, 1); err != nil {
-			break
-		}
-		wg.Go(func() {
-			defer sem.Release(1)
+		eg.Go(func() error {
 			j, err := l.readPlist(full)
 			if err != nil {
-				return
+				return nil // skip unreadable plists; partial dir is fine
 			}
 			results[i] = j
 			ok[i] = true
+			return nil
 		})
 	}
-	wg.Wait()
+	if err := eg.Wait(); err != nil {
+		return nil, err // ctx cancelled mid-fanout — surface, don't swallow
+	}
 
 	var jobs []cron.Job
 	// seen prevents duplicate Job.IDs when two plist files in the same
