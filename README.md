@@ -39,13 +39,13 @@ eon delete <id> [--yes]   # stop and remove a cron
 
 ## Sources
 
-| Platform | Reads from | Removes by |
+| Platform | User scope (writable) | System scope (read-only) |
 | --- | --- | --- |
-| macOS | user crontab + `~/Library/LaunchAgents/*.plist` | rewriting crontab / `launchctl unload` + delete plist |
-| Linux | user crontab + `~/.config/systemd/user/*.timer` | rewriting crontab / `systemctl --user stop`+`disable` + delete units |
+| macOS | user crontab + `~/Library/LaunchAgents/*.plist` | `/Library/LaunchAgents`, `/Library/LaunchDaemons`, `/System/Library/Launch*` |
+| Linux | user crontab + `~/.config/systemd/user/*.timer` | `/etc/crontab`, `/etc/cron.d/*`, `/etc/systemd/system`, `/usr/lib/systemd/system` |
 
-System-level locations (`/etc/crontab`, `/Library/LaunchAgents`, etc.) are
-intentionally not surfaced — eon focuses on *your* crons, not the OS's.
+Press `a` in the TUI to toggle system-scope rows; `eon list` accepts
+`--all` to include them.
 
 ## Keys (TUI)
 
@@ -66,10 +66,10 @@ q                 quit
 
 ## Architecture
 
-The `cron/` package is the domain core: a `Source` interface, an optional
-`Mutator` interface for backends that can write, and a `Manager` that
-fans calls out across them. Per-backend subpackages (`crontab/`,
-`launchd/`, `systemd/`, `etccron/`) each split into:
+The `cron/` package is the domain core: a `Source` interface, an
+optional `Mutator` interface for backends that can write, and a
+`Manager` that fans calls out across them. Per-backend subpackages
+(`crontab/`, `launchd/`, `systemd/`, `etccron/`) each split into:
 
 - `parser.go` — pure functional core. No syscalls, no Runner. Compiles
   on every platform; tested without containers.
@@ -77,10 +77,41 @@ fans calls out across them. Per-backend subpackages (`crontab/`,
   (`crontab`, `launchctl`, `systemctl`) through an injectable Runner.
   Build-tagged when the binary only exists on one OS.
 
+`Manager.List` queries every Source in parallel; on macOS where six
+launchd directories sit behind it, that turns sum-of-source-latencies
+into max-of-source-latencies. `launchd.List` further parallelises plist
+decode with a small worker pool.
+
 The CLI (`cli/`) and TUI (`tui/`) packages depend only on `cron.Source`
-and `cron.Manager` — they never name a concrete backend. Adding a new
-source means writing a subpackage and listing it in `factory_<os>.go`
-at the repo root.
+and `cron.Manager` — they never name a concrete backend. The
+`tests/architecture_test.go` import-graph guard fails CI if anyone
+breaks that rule.
+
+### Format parsers — what we delegate
+
+| Format | Parser | Status |
+| --- | --- | --- |
+| Cron expressions (`*/5 * * * *`, `@every 5m`) | [`github.com/robfig/cron/v3`](https://github.com/robfig/cron) | The same parser Kubernetes uses |
+| launchd plist (XML & binary) | [`howett.net/plist`](https://github.com/DHowett/go-plist) | Used for both decode and encode — encoder/decoder can't drift |
+| systemd unit files | [`github.com/coreos/go-systemd/v22/unit`](https://github.com/coreos/go-systemd) | Used by Kubernetes node tooling and Docker for unit-file I/O |
+
+Hand-rolled bits are limited to crontab line splitting (`<schedule>
+<command>`) and the portable `@every <duration>` schedule DSL — both
+trivial, both fuzz-tested. The repo carries 8 `FuzzXxx` targets; run
+them with `go test -fuzz=Fuzz... -fuzztime=30s ./cron/...`.
+
+### Adding a new backend
+
+1. Implement `cron.Source`. Add `cron.Mutator` if the backend can write.
+2. Add a `var _ cron.Source = (*Foo)(nil)` compile-time guard.
+3. Add a contract test:
+   ```go
+   crontest.Contract(t, "foo", newSource)
+   crontest.MutatorContract(t, "foo", newSource, addSpec, editSpec)
+   ```
+   The contract enforces ID shape, idempotent Delete, and ErrNotFound
+   semantics — same checks every built-in backend passes.
+4. Wire it into `factory_<os>.go`.
 
 ## Testing
 
@@ -89,7 +120,7 @@ make test                 # unit + integration suite, race detector on
 make test-container       # full Linux suite inside a container
 make smoke-container      # end-to-end CLI smoke (build + add + list + delete)
 make lint                 # golangci-lint
-go test -fuzz=Fuzz... ./cron/<sub>/...   # 6 fuzz targets across the parsers
+go test -fuzz=Fuzz... ./cron/<sub>/...   # 8 fuzz targets across the parsers
 ```
 
 ## License
