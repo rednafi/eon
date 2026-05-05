@@ -8,6 +8,8 @@
 package launchd
 
 import (
+	"bufio"
+	"bytes"
 	"cmp"
 	"context"
 	"errors"
@@ -128,11 +130,6 @@ func (l *Launchd) List(ctx context.Context) ([]cron.Job, error) {
 
 // readPlist is the imperative wrapper around the pure parsePlist: one
 // read, one decode, plus a best-effort os.Stat for LastRun.
-//
-// One read, one decode. Earlier code opened the file twice (os.Open +
-// os.ReadFile) which wasted a file descriptor and opened a TOCTOU
-// window where the on-disk content could change between syscalls and
-// produce a Job whose Raw and decoded fields disagreed.
 func (l *Launchd) readPlist(path string) (cron.Job, error) {
 	raw, err := os.ReadFile(path)
 	if err != nil {
@@ -166,11 +163,16 @@ func (l *Launchd) enrich(ctx context.Context, jobs []cron.Job) {
 		haveStatus bool
 	}
 	byLabel := map[string]runtime{}
-	// Tolerate CRLF — some hosts produce \r\n via wrappers. Split on
-	// either.
-	for i, line := range strings.Split(strings.ReplaceAll(string(out), "\r\n", "\n"), "\n") {
-		if i == 0 || strings.TrimSpace(line) == "" {
-			continue // header or blank
+	scanner := bufio.NewScanner(bytes.NewReader(out))
+	header := true // first non-blank line is the column header
+	for scanner.Scan() {
+		line := strings.TrimRight(scanner.Text(), "\r")
+		if strings.TrimSpace(line) == "" {
+			continue
+		}
+		if header {
+			header = false
+			continue
 		}
 		fields := strings.Fields(line)
 		if len(fields) < 3 {

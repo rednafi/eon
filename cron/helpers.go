@@ -52,3 +52,20 @@ func CommandShortName(cmd string) string {
 	}
 	return cmd
 }
+
+// UTF8BOM is the byte-order mark some editors prepend to UTF-8 files.
+// Backend parsers strip it per-line because strings.TrimSpace doesn't
+// remove it.
+const UTF8BOM = "\uFEFF"
+
+// LabelFromCommand returns prefix + base, where base is
+// CommandShortName(cmd) with slashes replaced by dashes (or fallback if
+// the command yields nothing). Used by launchd and systemd to derive
+// matching label conventions.
+func LabelFromCommand(cmd, prefix, fallback string) string {
+	short := strings.ReplaceAll(CommandShortName(cmd), "/", "-")
+	if short == "" {
+		short = fallback
+	}
+	return prefix + short
+}

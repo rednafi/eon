@@ -14,11 +14,6 @@ import (
 	"github.com/rednafi/eon/cron"
 )
 
-// utf8BOM is stripped per line so files saved by editors that prepend a
-// byte-order mark don't poison the first key. strings.TrimSpace doesn't
-// remove it.
-const utf8BOM = "\uFEFF"
-
 // parseEtcCrontab pulls cron lines out of either /etc/crontab or a
 // /etc/cron.d fragment. Both share the format: comments, blank lines,
 // ENV=value assignments (skipped), and "<schedule> <user> <command>"
@@ -33,7 +28,7 @@ func parseEtcCrontab(p cronspec.Parser, path string, data []byte, group string) 
 	scanner := cron.LineScanner(string(data))
 	for scanner.Scan() {
 		line := scanner.Text()
-		trimmed := strings.TrimSpace(strings.TrimPrefix(line, utf8BOM))
+		trimmed := strings.TrimSpace(strings.TrimPrefix(line, cron.UTF8BOM))
 		if trimmed == "" || strings.HasPrefix(trimmed, "#") {
 			continue
 		}

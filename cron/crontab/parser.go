@@ -8,12 +8,9 @@ package crontab
 
 import (
 	"strings"
-)
 
-// utf8BOM is the byte-order mark some editors prepend to UTF-8 files.
-// strings.TrimSpace doesn't remove it, so we strip it explicitly per
-// line.
-const utf8BOM = "\uFEFF"
+	"github.com/rednafi/eon/cron"
+)
 
 // splitCrontabLine separates the schedule expression from the command.
 // Supports both 5-field and descriptor (@daily, @reboot, ...) syntax.
@@ -21,7 +18,7 @@ const utf8BOM = "\uFEFF"
 // crontab); a leading UTF-8 BOM is stripped so files saved by Notepad
 // don't poison the first line.
 func splitCrontabLine(line string) (schedule, command string, ok bool) {
-	line = strings.TrimSpace(strings.TrimPrefix(line, utf8BOM))
+	line = strings.TrimSpace(strings.TrimPrefix(line, cron.UTF8BOM))
 	if strings.HasPrefix(line, "@") {
 		// "@daily<sep>cmd" — split on first whitespace run, space OR tab.
 		i := strings.IndexAny(line, " \t")

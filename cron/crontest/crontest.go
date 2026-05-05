@@ -10,7 +10,6 @@
 package crontest
 
 import (
-	"context"
 	"errors"
 	"strings"
 	"testing"
@@ -43,7 +42,7 @@ func Contract(t *testing.T, name string, newSource func(t *testing.T) cron.Sourc
 
 	t.Run(name+"/ListShape", func(t *testing.T) {
 		s := newSource(t)
-		jobs, err := s.List(context.Background())
+		jobs, err := s.List(t.Context())
 		if err != nil {
 			t.Fatalf("List: %v", err)
 		}
@@ -67,7 +66,7 @@ func Contract(t *testing.T, name string, newSource func(t *testing.T) cron.Sourc
 		// A bogus ID that no Source could plausibly own. Read-only
 		// Sources are allowed to return either ErrNotFound or a guard
 		// error; writable Sources must return ErrNotFound.
-		err := s.Delete(context.Background(), "crontest-bogus-id-that-no-source-owns")
+		err := s.Delete(t.Context(), "crontest-bogus-id-that-no-source-owns")
 		if err == nil {
 			t.Errorf("Delete of a fake ID should not succeed")
 			return
@@ -85,7 +84,7 @@ func Contract(t *testing.T, name string, newSource func(t *testing.T) cron.Sourc
 func MutatorContract(t *testing.T, name string, newSource func(t *testing.T) cron.Source, spec, edited cron.JobSpec) {
 	t.Helper()
 	t.Run(name+"/AddListEditDelete", func(t *testing.T) {
-		ctx := context.Background()
+		ctx := t.Context()
 		s := newSource(t)
 		mut, ok := s.(cron.Mutator)
 		if !ok {

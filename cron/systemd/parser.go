@@ -59,15 +59,10 @@ func prefixed(p, s string) string {
 	return p + s
 }
 
-// systemdLabel derives a label from a command, prefixed with "eon-" so
-// the source of an eon-created unit is obvious in `systemctl list-timers`.
+// systemdLabel derives a label from a command — eon's units are prefixed
+// with "eon-" so the source is obvious in `systemctl list-timers`.
 func systemdLabel(command string) string {
-	short := cron.CommandShortName(command)
-	short = strings.ReplaceAll(short, "/", "-")
-	if short == "" {
-		short = "job"
-	}
-	return "eon-" + short
+	return cron.LabelFromCommand(command, "eon-", "job")
 }
 
 // renderTimer emits a minimal [Unit]+[Timer]+[Install] body. Goes through

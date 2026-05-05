@@ -177,17 +177,11 @@ func formatCalendar(m map[string]any) string {
 	}, " ")
 }
 
-// launchdLabel derives a reverse-DNS-ish label from a command. Real users
-// pick their own labels; for eon-created plists we prefix with
-// "eon.<basename-of-first-token>" so the source is obvious in `launchctl
+// launchdLabel derives a reverse-DNS-ish label from a command — eon's
+// plists are prefixed with "eon." so the source is obvious in `launchctl
 // list`.
 func launchdLabel(command string) string {
-	short := cron.CommandShortName(command)
-	short = strings.ReplaceAll(short, "/", "-")
-	if short == "" {
-		short = "job"
-	}
-	return "eon." + short
+	return cron.LabelFromCommand(command, "eon.", "job")
 }
 
 // plistOut is the encoder-side counterpart to plistDoc — only the keys
@@ -213,7 +207,7 @@ func renderPlist(label, command string, interval cron.ScheduleInterval) string {
 	out := plistOut{
 		Label:            label,
 		ProgramArguments: strings.Fields(command),
-		StartInterval:    intervalSeconds(interval),
+		StartInterval:    interval.Seconds(),
 	}
 	body, err := plist.MarshalIndent(&out, plist.XMLFormat, "  ")
 	if err != nil {
@@ -225,25 +219,3 @@ func renderPlist(label, command string, interval cron.ScheduleInterval) string {
 	return string(body) + "\n"
 }
 
-// intervalSeconds collapses ScheduleInterval into seconds for
-// StartInterval. launchd's StartInterval is the only schedule key that's
-// *truly* portable across the descriptors we accept; calendar-based
-// schedules need StartCalendarInterval which is per-day-only.
-func intervalSeconds(s cron.ScheduleInterval) int {
-	if s.Every > 0 {
-		return max(1, int(s.Every.Seconds()))
-	}
-	switch s.Descriptor {
-	case "hourly":
-		return 3600
-	case "daily":
-		return 86400
-	case "weekly":
-		return 7 * 86400
-	case "monthly":
-		return 30 * 86400 // approximate; launchd has no calendar-month interval
-	case "yearly":
-		return 365 * 86400
-	}
-	return 0
-}

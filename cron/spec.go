@@ -62,6 +62,33 @@ type ScheduleInterval struct {
 // callers that want a default branch in switches.
 func (s ScheduleInterval) IsEmpty() bool { return s.Every == 0 && s.Descriptor == "" }
 
+// Seconds returns the interval as a count of seconds, suitable for
+// schedulers that take a single duration (launchd's StartInterval).
+// Descriptor values use approximate calendar-month / year conversions.
+// Returns 0 for an empty interval.
+func (s ScheduleInterval) Seconds() int {
+	if s.Every > 0 {
+		secs := int(s.Every.Seconds())
+		if secs < 1 {
+			return 1
+		}
+		return secs
+	}
+	switch s.Descriptor {
+	case "hourly":
+		return 3600
+	case "daily":
+		return 86400
+	case "weekly":
+		return 7 * 86400
+	case "monthly":
+		return 30 * 86400 // approximate; no calendar-month interval at the seconds level
+	case "yearly":
+		return 365 * 86400
+	}
+	return 0
+}
+
 // ParseScheduleInterval translates "@every <duration>" or a calendar
 // descriptor into a ScheduleInterval. Returns a non-nil error for cron
 // expressions and anything else the simple DSL doesn't cover — backends
