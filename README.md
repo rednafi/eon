@@ -5,10 +5,10 @@ running — crontab entries, launchd agents (macOS), systemd user timers (Linux)
 — with a k9s-style TUI for drilling into a job's schedule, raw definition, and
 log tail.
 
-eon is a *monitor*, not a scheduler. It reads what's already there. Creation
-is intentionally out of scope, because the crons it cares about are written
-by other tools (Claude Code, Codex, custom scripts, package managers) that
-each have their own scheduling UX.
+eon also supports lightweight authoring on writable backends: `eon add`
+appends a line to your user crontab, `eon edit` rewrites a single entry in
+place. System backends (`/etc/crontab`, `/etc/cron.d`, `/Library/Launch*`)
+remain strictly read-only.
 
 ## Install
 
@@ -24,6 +24,9 @@ eon list                  # table of every known cron
 eon list --json           # machine-readable
 eon show <id>             # full detail for one cron
 eon logs <id> [-n 100]    # tail stdout/stderr (when configured)
+eon add --schedule '@daily' --command '/bin/echo hi'
+                          # add to first writable backend (or --source <name>)
+eon edit <id> --schedule '@hourly'   # change schedule, command, or both
 eon delete <id> [--yes]   # stop and remove a cron
 ```
 

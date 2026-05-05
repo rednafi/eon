@@ -15,6 +15,11 @@ import (
 // `eon delete` interactively.
 var errAborted = errors.New("aborted")
 
+// errSystemReadOnly is the consistent error message for "this job lives in
+// a read-only system source" — shared by delete and edit so the user sees
+// the same wording regardless of which command they ran.
+var errSystemReadOnly = errors.New("refusing to mutate system-scope job (read-only)")
+
 func newDeleteCmd(mgr *cron.Manager) *cobra.Command {
 	var yes bool
 	cmd := &cobra.Command{
@@ -28,7 +33,7 @@ func newDeleteCmd(mgr *cron.Manager) *cobra.Command {
 				return err
 			}
 			if j.Scope == cron.ScopeSystem {
-				return errors.New("refusing to delete system-scope job (read-only)")
+				return errSystemReadOnly
 			}
 			if !yes {
 				cmd.Printf("Delete %s (%s)? [y/N] ", j.ID, j.Schedule)

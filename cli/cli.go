@@ -46,6 +46,8 @@ user timers on Linux, and (via --all) the read-only system locations under
 		newListCmd(mgr),
 		newShowCmd(mgr),
 		newLogsCmd(mgr),
+		newAddCmd(mgr),
+		newEditCmd(mgr),
 		newDeleteCmd(mgr),
 	)
 	return root

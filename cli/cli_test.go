@@ -18,10 +18,12 @@ import (
 
 // fakeOrigin is a minimal Source used to assemble a Manager without touching
 // real cron files. The CLI doesn't care which backend a job came from, so a
-// single fake covers list/show/delete behaviour.
+// single fake covers list/show/delete/add/edit behaviour.
 type fakeOrigin struct {
 	jobs    []cron.Job
 	deleted []string
+	added   []cron.JobSpec
+	edited  map[string]cron.JobSpec
 }
 
 func (f *fakeOrigin) Name() string      { return "fake" }
@@ -38,6 +40,32 @@ func (f *fakeOrigin) Delete(_ context.Context, id string) error {
 		}
 	}
 	return cron.ErrNotFound
+}
+
+func (f *fakeOrigin) Add(_ context.Context, spec cron.JobSpec) (cron.Job, error) {
+	f.added = append(f.added, spec)
+	j := cron.Job{
+		ID: "fake:" + cron.ShortHash(spec.Schedule+"|"+spec.Command),
+		Kind: "fake", Name: spec.Command,
+		Schedule: spec.Schedule, Command: spec.Command,
+	}
+	f.jobs = append(f.jobs, j)
+	return j, nil
+}
+
+func (f *fakeOrigin) Edit(_ context.Context, id string, spec cron.JobSpec) (cron.Job, error) {
+	if f.edited == nil {
+		f.edited = map[string]cron.JobSpec{}
+	}
+	for i, j := range f.jobs {
+		if j.ID == id {
+			f.jobs[i].Schedule = spec.Schedule
+			f.jobs[i].Command = spec.Command
+			f.edited[id] = spec
+			return f.jobs[i], nil
+		}
+	}
+	return cron.Job{}, cron.ErrNotFound
 }
 
 func newFakeManager(jobs ...cron.Job) (*cron.Manager, *fakeOrigin) {
@@ -168,6 +196,83 @@ func TestDeleteSystemRefused(t *testing.T) {
 	}
 	if len(fake.deleted) != 0 {
 		t.Errorf("system job should not be deleted: %v", fake.deleted)
+	}
+}
+
+func TestAddRequiresScheduleAndCommand(t *testing.T) {
+	t.Parallel()
+	mgr, _ := newFakeManager()
+	var out, errOut bytes.Buffer
+	if err := runCmd(t, mgr, []string{"add"}, nil, &out, &errOut); err == nil {
+		t.Errorf("add without flags must fail")
+	}
+}
+
+func TestAddHappyPath(t *testing.T) {
+	t.Parallel()
+	mgr, fake := newFakeManager()
+	var out bytes.Buffer
+	mustOK(t, runCmd(t, mgr, []string{"add", "--schedule", "@daily", "--command", "/bin/echo hi"}, nil, &out, &out))
+	if len(fake.added) != 1 || fake.added[0].Schedule != "@daily" {
+		t.Errorf("add not invoked correctly: %+v", fake.added)
+	}
+	if !strings.Contains(out.String(), "added fake:") {
+		t.Errorf("expected 'added <id>' confirmation, got %q", out.String())
+	}
+}
+
+// --source <unknown> must fail loudly. Without this, a typo in the source
+// name silently picks the first writable Source — surprising and unsafe.
+func TestAddWithUnknownSourceErrors(t *testing.T) {
+	t.Parallel()
+	mgr, _ := newFakeManager()
+	var out bytes.Buffer
+	err := runCmd(t, mgr, []string{"add", "--schedule", "@daily", "--command", "/bin/x", "--source", "ghost"}, nil, &out, &out)
+	if err == nil || !strings.Contains(err.Error(), "not found") {
+		t.Errorf("expected 'source not found' error, got %v", err)
+	}
+}
+
+func TestEditRequiresExistingJob(t *testing.T) {
+	t.Parallel()
+	mgr, _ := newFakeManager()
+	var out bytes.Buffer
+	err := runCmd(t, mgr, []string{"edit", "missing", "--schedule", "@daily"}, nil, &out, &out)
+	if !errors.Is(err, cron.ErrNotFound) {
+		t.Errorf("want ErrNotFound, got %v", err)
+	}
+}
+
+func TestEditChangesScheduleOnly(t *testing.T) {
+	t.Parallel()
+	mgr, fake := newFakeManager(cron.Job{ID: "fake:1", Name: "alpha", Schedule: "@daily", Command: "/bin/keep"})
+	var out bytes.Buffer
+	mustOK(t, runCmd(t, mgr, []string{"edit", "alpha", "--schedule", "@hourly"}, nil, &out, &out))
+	if got := fake.edited["fake:1"]; got.Schedule != "@hourly" || got.Command != "/bin/keep" {
+		t.Errorf("partial edit: command should have been kept, got %+v", got)
+	}
+}
+
+func TestEditChangesCommandOnly(t *testing.T) {
+	t.Parallel()
+	mgr, fake := newFakeManager(cron.Job{ID: "fake:1", Name: "alpha", Schedule: "@daily", Command: "/bin/old"})
+	var out bytes.Buffer
+	mustOK(t, runCmd(t, mgr, []string{"edit", "alpha", "--command", "/bin/new"}, nil, &out, &out))
+	if got := fake.edited["fake:1"]; got.Schedule != "@daily" || got.Command != "/bin/new" {
+		t.Errorf("partial edit: schedule should have been kept, got %+v", got)
+	}
+}
+
+func TestEditRefusesSystemScopeJob(t *testing.T) {
+	t.Parallel()
+	mgr, fake := newFakeManager(cron.Job{ID: "fake:sys", Name: "sys", Scope: cron.ScopeSystem, Schedule: "@daily", Command: "/bin/foo"})
+	var out bytes.Buffer
+	err := runCmd(t, mgr, []string{"edit", "sys", "--command", "/bin/new"}, nil, &out, &out)
+	if !errors.Is(err, errSystemReadOnly) {
+		t.Errorf("want errSystemReadOnly, got %v", err)
+	}
+	if len(fake.edited) != 0 {
+		t.Errorf("system job should not be edited: %v", fake.edited)
 	}
 }
 
