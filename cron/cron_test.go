@@ -171,6 +171,56 @@ func TestManagerListStampsScopeButPreservesExplicit(t *testing.T) {
 	}
 }
 
+func TestParseScheduleInterval(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		in   string
+		want ScheduleInterval
+		fail bool
+	}{
+		{"@hourly", ScheduleInterval{Descriptor: "hourly"}, false},
+		{"@daily", ScheduleInterval{Descriptor: "daily"}, false},
+		{"@midnight", ScheduleInterval{Descriptor: "daily"}, false},
+		{"@weekly", ScheduleInterval{Descriptor: "weekly"}, false},
+		{"@monthly", ScheduleInterval{Descriptor: "monthly"}, false},
+		{"@yearly", ScheduleInterval{Descriptor: "yearly"}, false},
+		{"@annually", ScheduleInterval{Descriptor: "yearly"}, false},
+		{"@every 5m", ScheduleInterval{Every: 5 * 60 * 1e9}, false},
+		{"@every 1h", ScheduleInterval{Every: 60 * 60 * 1e9}, false},
+		{"@every 30s", ScheduleInterval{Every: 30 * 1e9}, false},
+		{"  @every 10m  ", ScheduleInterval{Every: 10 * 60 * 1e9}, false},
+		{"@every notaduration", ScheduleInterval{}, true},
+		{"@every -5m", ScheduleInterval{}, true},
+		{"@every 0s", ScheduleInterval{}, true},
+		{"*/5 * * * *", ScheduleInterval{}, true},
+		{"@reboot", ScheduleInterval{}, true},
+		{"", ScheduleInterval{}, true},
+	}
+	for _, tc := range cases {
+		got, err := ParseScheduleInterval(tc.in)
+		if (err != nil) != tc.fail {
+			t.Errorf("ParseScheduleInterval(%q): err = %v, fail expected=%v", tc.in, err, tc.fail)
+			continue
+		}
+		if !tc.fail && got != tc.want {
+			t.Errorf("ParseScheduleInterval(%q) = %+v, want %+v", tc.in, got, tc.want)
+		}
+	}
+}
+
+func TestScheduleIntervalIsEmpty(t *testing.T) {
+	t.Parallel()
+	if !(ScheduleInterval{}).IsEmpty() {
+		t.Errorf("zero value should be empty")
+	}
+	if (ScheduleInterval{Descriptor: "daily"}).IsEmpty() {
+		t.Errorf("descriptor-set should not be empty")
+	}
+	if (ScheduleInterval{Every: 1}).IsEmpty() {
+		t.Errorf("every-set should not be empty")
+	}
+}
+
 type scopedOrigin struct {
 	scope Scope
 	jobs  []Job

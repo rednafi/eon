@@ -207,6 +207,92 @@ func TestSystemdDeleteWithNilSystemctl(t *testing.T) {
 	}
 }
 
+func TestSystemdAddWritesTimerAndService(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	src := &Systemd{Dir: dir, Tag: "test"}
+	j, err := src.Add(t.Context(), cron.JobSpec{Schedule: "@every 5m", Command: "/usr/bin/echo hi"})
+	if err != nil {
+		t.Fatalf("add: %v", err)
+	}
+	if !strings.HasPrefix(j.ID, "systemd-test:eon-") {
+		t.Errorf("returned ID = %q", j.ID)
+	}
+	timerBody, _ := os.ReadFile(filepath.Join(dir, strings.TrimPrefix(j.ID, "systemd-test:")+".timer"))
+	if !strings.Contains(string(timerBody), "OnUnitActiveSec=5m0s") {
+		t.Errorf("timer body wrong:\n%s", timerBody)
+	}
+	serviceBody, _ := os.ReadFile(filepath.Join(dir, strings.TrimPrefix(j.ID, "systemd-test:")+".service"))
+	if !strings.Contains(string(serviceBody), "ExecStart=/usr/bin/echo hi") {
+		t.Errorf("service body wrong:\n%s", serviceBody)
+	}
+}
+
+func TestSystemdAddDescriptorWritesOnCalendar(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	src := &Systemd{Dir: dir, Tag: "test"}
+	j, err := src.Add(t.Context(), cron.JobSpec{Schedule: "@daily", Command: "/usr/bin/echo daily"})
+	if err != nil {
+		t.Fatalf("add: %v", err)
+	}
+	body, _ := os.ReadFile(filepath.Join(dir, strings.TrimPrefix(j.ID, "systemd-test:")+".timer"))
+	if !strings.Contains(string(body), "OnCalendar=daily") {
+		t.Errorf("descriptor schedule should produce OnCalendar=daily:\n%s", body)
+	}
+}
+
+func TestSystemdAddRejectsBadSpec(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	src := &Systemd{Dir: dir, Tag: "test"}
+	cases := []cron.JobSpec{
+		{Schedule: "", Command: "/bin/x"},
+		{Schedule: "@every 5m", Command: ""},
+		{Schedule: "@every 5m", Command: "/bin/x\nbad"},
+		{Schedule: "*/5 * * * *", Command: "/bin/x"}, // 5-field cron unsupported
+	}
+	for _, spec := range cases {
+		if _, err := src.Add(t.Context(), spec); err == nil {
+			t.Errorf("expected error for %+v", spec)
+		}
+	}
+	if entries, _ := os.ReadDir(dir); len(entries) != 0 {
+		t.Errorf("validation failures must not write to disk; got %v", entries)
+	}
+}
+
+func TestSystemdEditRewritesPair(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	src := &Systemd{Dir: dir, Tag: "test"}
+	j, err := src.Add(t.Context(), cron.JobSpec{Schedule: "@hourly", Command: "/bin/echo old"})
+	if err != nil {
+		t.Fatalf("add: %v", err)
+	}
+	updated, err := src.Edit(t.Context(), j.ID, cron.JobSpec{Schedule: "@daily", Command: "/bin/echo new"})
+	if err != nil {
+		t.Fatalf("edit: %v", err)
+	}
+	if updated.Schedule != "daily" {
+		t.Errorf("schedule = %q, want 'daily'", updated.Schedule)
+	}
+	if updated.Command != "/bin/echo new" {
+		t.Errorf("command = %q, want '/bin/echo new'", updated.Command)
+	}
+}
+
+func TestSystemdReadOnlyRejectsAddAndEdit(t *testing.T) {
+	t.Parallel()
+	src := &Systemd{Dir: t.TempDir(), Tag: "etc", ReadOnly: true}
+	if _, err := src.Add(t.Context(), cron.JobSpec{Schedule: "@daily", Command: "/bin/x"}); err == nil {
+		t.Errorf("read-only Add must reject")
+	}
+	if _, err := src.Edit(t.Context(), "systemd-etc:foo", cron.JobSpec{Schedule: "@daily", Command: "/bin/x"}); err == nil {
+		t.Errorf("read-only Edit must reject")
+	}
+}
+
 func TestSystemdNameAndScope(t *testing.T) {
 	t.Parallel()
 	user := &Systemd{Tag: "user"}

@@ -18,9 +18,13 @@ import (
 	"github.com/rednafi/eon/cron"
 )
 
-// Compile-time guard: Launchd satisfies cron.Source. Failed builds are
-// preferable to "missing method" runtime panics.
-var _ cron.Source = (*Launchd)(nil)
+// Compile-time guards: Launchd satisfies cron.Source AND, when not
+// read-only, cron.Mutator. Failed builds are preferable to "missing
+// method" runtime panics.
+var (
+	_ cron.Source  = (*Launchd)(nil)
+	_ cron.Mutator = (*Launchd)(nil)
+)
 
 // LaunchctlRunner executes launchctl with the given args. It returns combined
 // output and an error. Tests inject a fake to avoid mutating system state.
@@ -284,6 +288,141 @@ func (l *Launchd) enrich(ctx context.Context, jobs []cron.Job) {
 			}
 		}
 	}
+}
+
+// Add implements cron.Mutator. We translate the portable schedule DSL
+// (`@every <duration>` or `@hourly`/`@daily`/...) into a StartInterval
+// plist and write it. Cron-style 5-field schedules return a clear error
+// — they don't have a clean launchd equivalent and the user should
+// target the crontab source instead.
+func (l *Launchd) Add(_ context.Context, spec cron.JobSpec) (cron.Job, error) {
+	if l.ReadOnly {
+		return cron.Job{}, fmt.Errorf("%s is read-only", l.Name())
+	}
+	if err := validateSpec(spec); err != nil {
+		return cron.Job{}, err
+	}
+	interval, err := cron.ParseScheduleInterval(spec.Schedule)
+	if err != nil {
+		return cron.Job{}, err
+	}
+	label := launchdLabel(spec.Command)
+	path := filepath.Join(l.Dir, label+".plist")
+	if _, err := os.Stat(path); err == nil {
+		return cron.Job{}, fmt.Errorf("a plist for %q already exists at %s; use eon edit", label, path)
+	}
+	body := renderPlist(label, spec.Command, interval)
+	if err := os.MkdirAll(l.Dir, 0o755); err != nil {
+		return cron.Job{}, err
+	}
+	if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
+		return cron.Job{}, err
+	}
+	return l.readPlist(path)
+}
+
+// Edit implements cron.Mutator. We rewrite the plist for the given ID with
+// the new schedule and command, preserving the file path.
+func (l *Launchd) Edit(_ context.Context, id string, spec cron.JobSpec) (cron.Job, error) {
+	label, ok := strings.CutPrefix(id, "launchd-"+l.Tag+":")
+	if !ok {
+		return cron.Job{}, cron.ErrNotFound
+	}
+	if l.ReadOnly {
+		return cron.Job{}, fmt.Errorf("%s is read-only", l.Name())
+	}
+	if err := validateSpec(spec); err != nil {
+		return cron.Job{}, err
+	}
+	interval, err := cron.ParseScheduleInterval(spec.Schedule)
+	if err != nil {
+		return cron.Job{}, err
+	}
+	path := filepath.Join(l.Dir, label+".plist")
+	if _, err := os.Stat(path); os.IsNotExist(err) {
+		return cron.Job{}, cron.ErrNotFound
+	} else if err != nil {
+		return cron.Job{}, err
+	}
+	body := renderPlist(label, spec.Command, interval)
+	if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
+		return cron.Job{}, err
+	}
+	return l.readPlist(path)
+}
+
+// validateSpec catches obviously-broken inputs before we touch disk.
+// launchd would silently load a plist with an empty Command field —
+// which is a worse failure mode than a noisy error.
+func validateSpec(spec cron.JobSpec) error {
+	if strings.TrimSpace(spec.Schedule) == "" {
+		return fmt.Errorf("schedule must not be empty")
+	}
+	if strings.TrimSpace(spec.Command) == "" {
+		return fmt.Errorf("command must not be empty")
+	}
+	if strings.ContainsAny(spec.Command, "\r\n") {
+		return fmt.Errorf("command must not contain newlines")
+	}
+	return nil
+}
+
+// launchdLabel derives a reverse-DNS-ish label from a command. Real users
+// pick their own labels; for eon-created plists we prefix with
+// "eon.<basename-of-first-token>" so the source is obvious in `launchctl list`.
+func launchdLabel(command string) string {
+	short := cron.CommandShortName(command)
+	short = strings.ReplaceAll(short, "/", "-")
+	if short == "" {
+		short = "job"
+	}
+	return "eon." + short
+}
+
+// renderPlist generates a minimal launchd plist (label, program arguments,
+// schedule). We split the command on whitespace for ProgramArguments —
+// preserves quoting only as well as Fields() does, but launchd doesn't
+// honour shell quoting anyway, so a power user wanting `bash -c '...'` is
+// expected to author the plist by hand.
+func renderPlist(label, command string, interval cron.ScheduleInterval) string {
+	args := strings.Fields(command)
+	var b strings.Builder
+	b.WriteString(`<?xml version="1.0" encoding="UTF-8"?>` + "\n")
+	b.WriteString(`<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">` + "\n")
+	b.WriteString(`<plist version="1.0"><dict>` + "\n")
+	fmt.Fprintf(&b, "<key>Label</key><string>%s</string>\n", label)
+	b.WriteString("<key>ProgramArguments</key><array>\n")
+	for _, a := range args {
+		fmt.Fprintf(&b, "  <string>%s</string>\n", a)
+	}
+	b.WriteString("</array>\n")
+	seconds := intervalSeconds(interval)
+	fmt.Fprintf(&b, "<key>StartInterval</key><integer>%d</integer>\n", seconds)
+	b.WriteString("</dict></plist>\n")
+	return b.String()
+}
+
+// intervalSeconds collapses ScheduleInterval into seconds for StartInterval.
+// launchd's StartInterval is the only schedule key that's *truly* portable
+// across the descriptors we accept; calendar-based schedules need
+// StartCalendarInterval which is per-day-only.
+func intervalSeconds(s cron.ScheduleInterval) int {
+	if s.Every > 0 {
+		return max(1, int(s.Every.Seconds()))
+	}
+	switch s.Descriptor {
+	case "hourly":
+		return 3600
+	case "daily":
+		return 86400
+	case "weekly":
+		return 7 * 86400
+	case "monthly":
+		return 30 * 86400 // approximate; launchd has no calendar-month interval
+	case "yearly":
+		return 365 * 86400
+	}
+	return 0
 }
 
 // Delete implements cron.Source. ReadOnly sources reject the call.

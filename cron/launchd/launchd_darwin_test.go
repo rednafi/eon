@@ -458,6 +458,99 @@ func TestLaunchdDeleteForeignIDReturnsNotFound(t *testing.T) {
 // NewUser builds a source pointed at ~/Library/LaunchAgents. We don't test
 // the actual home dir, just that the constructor returns a reasonable Tag
 // and a non-nil Runner so List won't no-op on real systems.
+func TestLaunchdAddWritesPlist(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	src := &Launchd{Dir: dir, Tag: "test"}
+	j, err := src.Add(t.Context(), cron.JobSpec{Schedule: "@every 5m", Command: "/usr/bin/echo hi"})
+	if err != nil {
+		t.Fatalf("add: %v", err)
+	}
+	if !strings.HasPrefix(j.ID, "launchd-test:eon.") {
+		t.Errorf("returned ID = %q", j.ID)
+	}
+	files, _ := os.ReadDir(dir)
+	if len(files) != 1 {
+		t.Fatalf("want 1 plist, got %d", len(files))
+	}
+	body, _ := os.ReadFile(filepath.Join(dir, files[0].Name()))
+	if !strings.Contains(string(body), "<integer>300</integer>") {
+		t.Errorf("StartInterval not 300 seconds:\n%s", body)
+	}
+}
+
+func TestLaunchdAddRejectsBadSpec(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	src := &Launchd{Dir: dir, Tag: "test"}
+	cases := []cron.JobSpec{
+		{Schedule: "", Command: "/bin/x"},
+		{Schedule: "@every 5m", Command: ""},
+		{Schedule: "@every 5m", Command: "/bin/x\nrm -rf /"},
+		{Schedule: "*/5 * * * *", Command: "/bin/x"}, // 5-field cron unsupported here
+		{Schedule: "@every notaduration", Command: "/bin/x"},
+	}
+	for _, spec := range cases {
+		if _, err := src.Add(t.Context(), spec); err == nil {
+			t.Errorf("expected validation error for %+v", spec)
+		}
+	}
+	if entries, _ := os.ReadDir(dir); len(entries) != 0 {
+		t.Errorf("validation failures shouldn't write to disk; got %v", entries)
+	}
+}
+
+func TestLaunchdAddRejectsDuplicate(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	src := &Launchd{Dir: dir, Tag: "test"}
+	spec := cron.JobSpec{Schedule: "@hourly", Command: "/bin/echo same"}
+	if _, err := src.Add(t.Context(), spec); err != nil {
+		t.Fatalf("first add: %v", err)
+	}
+	if _, err := src.Add(t.Context(), spec); err == nil {
+		t.Errorf("second add of same command should error (already exists)")
+	}
+}
+
+func TestLaunchdEditRewritesPlist(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	src := &Launchd{Dir: dir, Tag: "test"}
+	j, err := src.Add(t.Context(), cron.JobSpec{Schedule: "@every 5m", Command: "/usr/bin/echo hi"})
+	if err != nil {
+		t.Fatalf("add: %v", err)
+	}
+	updated, err := src.Edit(t.Context(), j.ID, cron.JobSpec{Schedule: "@hourly", Command: "/usr/bin/echo new"})
+	if err != nil {
+		t.Fatalf("edit: %v", err)
+	}
+	if updated.Schedule != "every 1h" {
+		t.Errorf("schedule render after edit = %q, want 'every 1h'", updated.Schedule)
+	}
+	if !strings.Contains(updated.Command, "/usr/bin/echo new") {
+		t.Errorf("command not updated: %q", updated.Command)
+	}
+}
+
+func TestLaunchdEditUnknownIDIsNotFound(t *testing.T) {
+	t.Parallel()
+	src := &Launchd{Dir: t.TempDir(), Tag: "test"}
+	_, err := src.Edit(t.Context(), "launchd-test:ghost", cron.JobSpec{Schedule: "@hourly", Command: "/bin/x"})
+	if !errors.Is(err, cron.ErrNotFound) {
+		t.Errorf("want ErrNotFound, got %v", err)
+	}
+}
+
+func TestLaunchdReadOnlyRejectsAdd(t *testing.T) {
+	t.Parallel()
+	src := &Launchd{Dir: t.TempDir(), Tag: "system", ReadOnly: true}
+	_, err := src.Add(t.Context(), cron.JobSpec{Schedule: "@hourly", Command: "/bin/x"})
+	if err == nil || !strings.Contains(err.Error(), "read-only") {
+		t.Errorf("read-only Add must reject, got %v", err)
+	}
+}
+
 func TestNewUserConstructor(t *testing.T) {
 	t.Parallel()
 	src, err := NewUser()
