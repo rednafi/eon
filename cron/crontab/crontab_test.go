@@ -484,9 +484,11 @@ func TestCrontabEditForeignIDIsNotFound(t *testing.T) {
 	}
 }
 
-// FuzzSplitCrontabLine asserts the parser is total: it must never panic
-// regardless of input. We seed with the known-good cases plus a handful of
-// adversarial fixtures (BOM, CRLF, NULs, very long whitespace runs).
+// FuzzSplitCrontabLine asserts the parser is total (never panics) and
+// honours its postcondition: when ok=true, both schedule and command are
+// non-empty trimmed strings \u2014 Add otherwise emits a malformed line that
+// the cron daemon silently ignores. Seeded with adversarial fixtures
+// (BOM, tabs, CRLF, NULs, very long whitespace runs).
 func FuzzSplitCrontabLine(f *testing.F) {
 	for _, seed := range []string{
 		"",
@@ -504,18 +506,29 @@ func FuzzSplitCrontabLine(f *testing.F) {
 		f.Add(seed)
 	}
 	f.Fuzz(func(t *testing.T, line string) {
-		// Drop control bytes that never appear in real crontabs and would
-		// only exercise our string handling, not the parser logic.
-		if strings.ContainsRune(line, 0) {
-			t.Skip()
+		schedule, command, ok := splitCrontabLine(line)
+		if !ok {
+			return
 		}
-		_, _, _ = splitCrontabLine(line) // must not panic
+		if strings.TrimSpace(schedule) == "" {
+			t.Errorf("ok=true but schedule blank for input %q", line)
+		}
+		if strings.TrimSpace(command) == "" {
+			t.Errorf("ok=true but command blank for input %q", line)
+		}
+		// command must already be trimmed \u2014 leading whitespace would
+		// produce a Name with surprising prefix.
+		if command != strings.TrimSpace(command) {
+			t.Errorf("command not trimmed: %q for input %q", command, line)
+		}
 	})
 }
 
-// FuzzCrontabParse stresses the full file-level parser. Crucial property:
-// every emitted Job must round-trip through cron.ShortHash so Delete can
-// later find it.
+// FuzzCrontabParse stresses the full file-level parser. Invariants:
+//  1. every Job's ID has the "crontab:" prefix and an 8-hex-digit hash;
+//  2. Job.Name equals CommandShortName(Job.Command) \u2014 keeps the list view
+//     consistent with the underlying command;
+//  3. the parser never produces a Job with a blank schedule or command.
 func FuzzCrontabParse(f *testing.F) {
 	for _, seed := range []string{
 		"",
@@ -531,8 +544,14 @@ func FuzzCrontabParse(f *testing.F) {
 	f.Fuzz(func(t *testing.T, content string) {
 		jobs, _ := c.parse(content)
 		for _, j := range jobs {
-			if !strings.HasPrefix(j.ID, "crontab:") {
+			if !strings.HasPrefix(j.ID, "crontab:") || len(j.ID) != len("crontab:")+8 {
 				t.Errorf("malformed ID: %q (input %q)", j.ID, content)
+			}
+			if want := cron.CommandShortName(j.Command); j.Name != want {
+				t.Errorf("Name=%q want %q (Command=%q)", j.Name, want, j.Command)
+			}
+			if strings.TrimSpace(j.Schedule) == "" || strings.TrimSpace(j.Command) == "" {
+				t.Errorf("blank schedule or command in Job: %+v", j)
 			}
 		}
 	})
