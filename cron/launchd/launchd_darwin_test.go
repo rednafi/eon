@@ -653,6 +653,34 @@ func TestLaunchdEditUnknownIDIsNotFound(t *testing.T) {
 	}
 }
 
+// If the plist file disappears between Stat and Remove (concurrent
+// delete from another process), Delete should report ErrNotFound rather
+// than a generic "remove: no such file" error. The desired end-state
+// (file gone) already holds.
+func TestLaunchdDeleteToleratesConcurrentRemoval(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	plistPath := filepath.Join(dir, "com.example.race.plist")
+	if err := os.WriteFile(plistPath, []byte(minimalPlist("com.example.race", 60)), 0o600); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	// Runner used as a hook: the moment launchctl is invoked (between
+	// Stat and Remove), nuke the file so the subsequent os.Remove sees
+	// IsNotExist.
+	src := &Launchd{
+		Dir: dir,
+		Tag: "test",
+		Runner: func(_ context.Context, _ []string) ([]byte, error) {
+			_ = os.Remove(plistPath)
+			return nil, nil
+		},
+	}
+	err := src.Delete(t.Context(), "launchd-test:com.example.race")
+	if !errors.Is(err, cron.ErrNotFound) {
+		t.Errorf("concurrent removal: want ErrNotFound, got %v", err)
+	}
+}
+
 func TestLaunchdReadOnlyRejectsAdd(t *testing.T) {
 	t.Parallel()
 	src := &Launchd{Dir: t.TempDir(), Tag: "system", ReadOnly: true}

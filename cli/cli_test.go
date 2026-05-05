@@ -296,6 +296,31 @@ func TestTruncateRunesHandlesMultibyte(t *testing.T) {
 	}
 }
 
+// CJK glyphs occupy two display cells. truncateRunes must not produce a
+// result wider than the requested cap — the previous rune-counting
+// implementation would output a string that visually overflowed the
+// column on every line containing a 2-cell character.
+func TestTruncateRunesRespectsDisplayWidth(t *testing.T) {
+	t.Parallel()
+	got := truncateRunes("日本語の文字列", 6)
+	if w := runeWidth(got); w > 6 {
+		t.Errorf("truncated width = %d cells, want ≤ 6: %q", w, got)
+	}
+}
+
+// runeWidth must return 2 for a CJK glyph and 0 for a zero-width joiner.
+// Without a real width function, table columns drift any time a job name
+// contains either.
+func TestRuneWidthCellAccounting(t *testing.T) {
+	t.Parallel()
+	if w := runeWidth("日"); w != 2 {
+		t.Errorf("CJK width = %d, want 2", w)
+	}
+	if w := runeWidth("a"); w != 1 {
+		t.Errorf("ASCII width = %d, want 1", w)
+	}
+}
+
 // `eon show <id> --json` should produce parseable JSON for a single job —
 // callers wire eon into pipelines and rely on this shape.
 func TestShowJSONEmitsSingleJob(t *testing.T) {

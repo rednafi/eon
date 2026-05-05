@@ -128,7 +128,10 @@ type Manager struct {
 func NewManager(sources ...Source) *Manager { return &Manager{sources: sources} }
 
 // Sources exposes the underlying Sources for diagnostics and TUI labels.
-func (m *Manager) Sources() []Source { return m.sources }
+// Returns a defensive copy so callers can't mutate Manager state by
+// reassigning into the returned slice (the Source pointers themselves
+// remain shared — that's the point of fan-out).
+func (m *Manager) Sources() []Source { return slices.Clone(m.sources) }
 
 // SourceNames returns one Name per Source, in registration order.
 func (m *Manager) SourceNames() []string {

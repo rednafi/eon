@@ -511,6 +511,12 @@ func (l *Launchd) Delete(ctx context.Context, id string) error {
 		_, _ = l.Runner(ctx, []string{"unload", path})
 	}
 	if err := os.Remove(path); err != nil {
+		// Race with another deletion: between Stat and Remove the file was
+		// removed by something else. Treat the same way as if Stat had
+		// originally returned NotExist — the desired end-state already holds.
+		if os.IsNotExist(err) {
+			return cron.ErrNotFound
+		}
 		return fmt.Errorf("remove %s: %w", path, err)
 	}
 	return nil

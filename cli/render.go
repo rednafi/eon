@@ -8,26 +8,41 @@ import (
 	"os"
 	"strings"
 	"time"
-	"unicode/utf8"
+
+	"github.com/mattn/go-runewidth"
 
 	"github.com/rednafi/eon/cron"
 )
 
-// runeWidth measures s in runes rather than bytes. Cells in the eon CLI are
-// plain text (no ANSI), so a rune count is the right cell-count metric for
-// alignment. Using len() drops alignment the moment a job name contains a
-// multi-byte glyph.
-func runeWidth(s string) int { return utf8.RuneCountInString(s) }
+// runeWidth measures s in display cells, not raw runes. CJK glyphs occupy
+// two cells and combining marks zero, so utf8.RuneCountInString would
+// misalign the table the moment a non-ASCII character appears. mattn's
+// runewidth is the same library bubbletea uses internally so the CLI and
+// TUI agree on column widths.
+func runeWidth(s string) int { return runewidth.StringWidth(s) }
 
-// truncateRunes shortens s to width display cells (rune count), replacing
-// the trailing rune with "…" when truncation actually happens. Operates on
-// runes so we never slice through a multi-byte codepoint.
+// truncateRunes shortens s to `width` display cells, replacing the
+// trailing characters with "…" when truncation actually happens. The
+// loop builds the prefix one rune at a time so wide characters don't get
+// cut mid-glyph.
 func truncateRunes(s string, width int) string {
 	if width <= 1 || runeWidth(s) <= width {
 		return s
 	}
-	rs := []rune(s)
-	return string(rs[:width-1]) + "…"
+	const ellipsis = "…"
+	target := width - runeWidth(ellipsis)
+	var b strings.Builder
+	used := 0
+	for _, r := range s {
+		w := runewidth.RuneWidth(r)
+		if used+w > target {
+			break
+		}
+		b.WriteRune(r)
+		used += w
+	}
+	b.WriteString(ellipsis)
+	return b.String()
 }
 
 // renderTable prints jobs as a fixed-width table sized to the data. ID can

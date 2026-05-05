@@ -265,6 +265,21 @@ func (s *scopedOrigin) Scope() Scope                             { return s.scop
 func (s *scopedOrigin) List(_ context.Context) ([]Job, error)    { return slices.Clone(s.jobs), nil }
 func (s *scopedOrigin) Delete(_ context.Context, _ string) error { return ErrNotFound }
 
+// Sources() must return a defensive copy. A caller mutating the returned
+// slice (e.g. tests using sources[0] = nil) used to corrupt the Manager's
+// internal state silently.
+func TestSourcesReturnsDefensiveCopy(t *testing.T) {
+	t.Parallel()
+	a := &stubOrigin{name: "a"}
+	b := &stubOrigin{name: "b"}
+	mgr := NewManager(a, b)
+	got := mgr.Sources()
+	got[0] = nil // try to corrupt
+	if mgr.Sources()[0] == nil {
+		t.Errorf("caller mutation reached Manager state — defensive copy missing")
+	}
+}
+
 func TestSourceNamesPreservesRegistrationOrder(t *testing.T) {
 	t.Parallel()
 	mgr := NewManager(
