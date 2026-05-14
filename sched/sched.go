@@ -54,10 +54,6 @@ type Scheduler struct {
 	store *store.Store
 	cfg   Config
 
-	// Concurrency state. Workers release their slots and decrement wg
-	// before exiting, so after a clean shutdown each of these is back
-	// to its zero state — a Scheduler is technically reusable, though
-	// typical use is one-shot.
 	sem     *semaphore.Weighted
 	wake    chan struct{}
 	wg      sync.WaitGroup
@@ -119,13 +115,14 @@ func (s *Scheduler) Start(ctx context.Context) error {
 			return err
 		}
 
-		due, err := s.store.DueJobs(ctx, s.cfg.Now())
+		now := s.cfg.Now()
+		due, err := s.store.DueJobs(ctx, now)
 		s.warn("due jobs", err)
 		for _, job := range due {
-			s.fire(ctx, job)
+			s.fire(ctx, now, job)
 		}
 
-		s.sleep(ctx)
+		s.sleep(ctx, now)
 	}
 }
 
@@ -133,8 +130,8 @@ func (s *Scheduler) Start(ctx context.Context) error {
 // previous run for this job is still in flight) or spawns a worker
 // goroutine. next_fire_at is advanced *before* the runner starts so
 // a crashed daemon does not replay this fire on restart.
-func (s *Scheduler) fire(ctx context.Context, job eon.Job) {
-	next := eon.NextFire(job, s.cfg.Now())
+func (s *Scheduler) fire(ctx context.Context, now time.Time, job eon.Job) {
+	next := eon.NextFire(job, now)
 	s.warnJob("advance next_fire_at", job.ID, s.store.AdvanceNextFire(ctx, job.ID, next))
 
 	if !s.running.reserve(job.ID) {
@@ -150,8 +147,8 @@ func (s *Scheduler) fire(ctx context.Context, job eon.Job) {
 // sleep blocks until the soonest scheduled fire, capped by MaxSleep,
 // or until a wake or ctx cancellation interrupts. ctx cancellation
 // is detected by the loop on the next iteration via ctx.Err().
-func (s *Scheduler) sleep(ctx context.Context) {
-	timer := time.NewTimer(s.nextSleep(ctx))
+func (s *Scheduler) sleep(ctx context.Context, now time.Time) {
+	timer := time.NewTimer(s.nextSleep(ctx, now))
 	defer timer.Stop()
 	select {
 	case <-ctx.Done():
@@ -164,8 +161,8 @@ func (s *Scheduler) sleep(ctx context.Context) {
 // Clamped to [1ms, MaxSleep]: zero or negative would busy-spin, and
 // the upper bound is a safety net against a hypothetical lost wake
 // on a long-idle daemon.
-func (s *Scheduler) nextSleep(ctx context.Context) time.Duration {
-	soonest, err := s.store.SoonestDeadline(ctx, s.cfg.Now())
+func (s *Scheduler) nextSleep(ctx context.Context, now time.Time) time.Duration {
+	soonest, err := s.store.SoonestDeadline(ctx, now)
 	s.warn("soonest", err)
 	d := s.cfg.MaxSleep
 	if !soonest.IsZero() {
@@ -206,10 +203,6 @@ func (s *Scheduler) runJob(ctx context.Context, job eon.Job) {
 		s.warnJob("mark oneshot done", job.ID, s.store.SetJobStatus(ctx, job.ID, eon.StatusDone, finishedAt))
 	}
 }
-
-// warn / warnJob log a non-fatal error if err is non-nil. Two flavours
-// rather than one with a sentinel JobID — store calls then collapse to
-// a single readable line at the call site.
 
 func (s *Scheduler) warn(op string, err error) {
 	if err != nil {

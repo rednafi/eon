@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/robfig/cron/v3"
@@ -17,6 +18,12 @@ var cronParser = cron.NewParser(
 		cron.Descriptor,
 )
 
+// cronCache memoises ParseCron results. cron.Schedule is immutable and
+// the hot path (scheduler firing @every 1s jobs) would otherwise
+// re-parse the same expression once per second. Bounded in practice
+// by the number of distinct cron expressions in the database.
+var cronCache sync.Map // map[string]cron.Schedule
+
 // ParseCron validates a cron expression and returns a [cron.Schedule]
 // that can compute next-fire times. Returns [ErrInvalidCron] wrapped
 // with the underlying parser message.
@@ -29,6 +36,9 @@ func ParseCron(expr string) (cron.Schedule, error) {
 	expr = strings.TrimSpace(expr)
 	if expr == "" {
 		return nil, fmt.Errorf("%w: empty expression", ErrInvalidCron)
+	}
+	if v, ok := cronCache.Load(expr); ok {
+		return v.(cron.Schedule), nil
 	}
 	if rest, ok := strings.CutPrefix(expr, "@every "); ok {
 		d, err := time.ParseDuration(strings.TrimSpace(rest))
@@ -44,6 +54,7 @@ func ParseCron(expr string) (cron.Schedule, error) {
 	if err != nil {
 		return nil, fmt.Errorf("%w: %s", ErrInvalidCron, err.Error())
 	}
+	cronCache.Store(expr, sched)
 	return sched, nil
 }
 
