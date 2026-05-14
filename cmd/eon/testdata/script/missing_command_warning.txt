@@ -1,0 +1,40 @@
+# '--' is mandatory before the command. The two forms below both
+# work and produce equivalent jobs:
+#
+#   eon add ... -- "echo hello"          → /bin/sh -c "echo hello"
+#   eon add ... -- /bin/echo hello       → exec direct
+#   eon add ... -- sh -c "echo hello"    → exec direct (explicit shell)
+
+# Without '--' → hard fail.
+! exec eon add --at '+1h' --name broken1 'echo hello'
+stderr 'Usage error.*place the command'
+! exec eon add --at '+1h' --name broken2 /bin/echo hi
+stderr 'Usage error.*place the command'
+! exec eon add --at '+1h' --name broken3 /bin/echo
+stderr 'Usage error.*place the command'
+
+# Single quoted string after '--' → wrapped in sh -c.
+exec eon add --at '+1h' --name shellform -- 'echo hello'
+stdout 'added job'
+exec eon show shellform --json
+stdout '/bin/sh'
+stdout '-c'
+stdout 'echo hello'
+
+# Multi-arg after '--' → direct argv.
+exec eon add --at '+1h' --name directform -- /bin/echo hi
+stdout 'added job'
+exec eon show directform --json
+stdout '/bin/echo'
+
+# Explicit sh -c after '--' → direct argv (user picks the shell).
+exec eon add --at '+1h' --name explicit -- sh -c 'echo new'
+exec eon show explicit --json
+stdout '"sh"'
+stdout '"-c"'
+stdout '"echo new"'
+
+# Binary that doesn't exist still succeeds at add time; the scheduler
+# captures the start error into the run log when it fires.
+exec eon add --at '+1h' --name nonexistent -- /no/such/binary
+stdout 'added job'

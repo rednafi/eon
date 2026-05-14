@@ -1,0 +1,19 @@
+# logs --follow streams completed runs with headers. We bound the
+# follow with `timeout 2` whose 124 exit is the expected outcome, so
+# we wrap the call in `!` for testscript.
+
+exec eon add --cron '@every 1s' --name ticker -- echo tick
+
+exec eon daemon &daemon&
+
+# Let at least one run land before we start following.
+exec sleep 2
+
+# Follow for ~2s, then timeout fires (exit 124). The follower must
+# have produced at least one header + body by then.
+! exec timeout 2 eon logs ticker --follow
+stdout '==> run #'
+stdout 'tick'
+
+exec eon stop
+wait daemon

@@ -1,0 +1,23 @@
+# seppuku is destructive — defaults to dry-run; --yes performs. We
+# can't actually perform the destructive path in a script (it would
+# delete the test binary), but every step is covered via dry-run
+# output assertions.
+
+# Default (no flag) is dry-run with nothing to remove (no DB exists yet).
+exec eon seppuku
+stdout 'would remove binary'
+stdout 'dry run; nothing was modified'
+
+# Add a job so the data dir exists, then dry-run again.
+exec eon add --cron '@hourly' --name j1 -- echo hi
+exec eon seppuku
+stdout 'would remove data dir'
+stdout 'would remove binary'
+
+# After dry-run, the job is still there (proves nothing was touched).
+exec eon show j1 --json
+stdout '"name": "j1"'
+
+# --dry-run flag is gone — should now be rejected as an unknown flag.
+! exec eon seppuku --dry-run
+stderr 'Usage error.*unknown flag'

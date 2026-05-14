@@ -1,0 +1,79 @@
+# `eon prune` removes jobs that won't fire (done one-shots and
+# disabled jobs). Default is dry-run; --yes performs the delete.
+
+# Seed: 1 enabled cron, 1 disabled cron, 1 enabled oneshot (future),
+# 1 done oneshot (via daemon fire).
+exec eon add --cron '@hourly' --name live -- /bin/echo hi
+exec eon add --cron '@hourly' --name offcron -- /bin/echo off
+exec eon disable offcron
+exec eon add --at '+1h' --name pending -- /bin/echo pending
+exec eon add --at '+1s' --name once -- /bin/echo done
+exec eon daemon &daemon&
+exec sleep 2.5
+exec eon show once --json
+stdout '"status": "done"'
+exec eon stop
+wait daemon
+
+# Dry-run lists exactly the disabled and done jobs.
+exec eon prune
+stdout 'would prune 2'
+stdout 'offcron'
+stdout 'once'
+! stdout '  live'
+! stdout 'pending'
+stdout 'pass --yes'
+
+# Nothing was actually deleted.
+exec eon ls --all --json
+stdout '"name": "offcron"'
+stdout '"name": "once"'
+
+# Status filter narrows the scope. With --status done we only see
+# the done one-shot.
+exec eon prune --status done
+stdout 'would prune 1'
+stdout 'once'
+! stdout 'offcron'
+
+# Status enabled (live + pending) is what the user would NOT
+# normally prune; the filter still works because we trust them.
+exec eon prune --status enabled
+stdout 'would prune 2'
+stdout 'live'
+stdout 'pending'
+
+# Kind narrows further: --kind cron restricts to cron jobs. With
+# the default disabled+done filter, only the disabled cron matches.
+exec eon prune --kind cron
+stdout 'would prune 1'
+stdout 'offcron'
+! stdout 'once'
+
+# JSON dry-run emits a JSON array of candidate jobs.
+exec eon prune --json
+stdout '"name": "offcron"'
+stdout '"name": "once"'
+
+# JSON --yes emits the array of deleted IDs (5-char alphanumeric).
+exec eon prune --yes --json
+stdout '"[0-9A-Za-z]{5}",'
+stdout '"[0-9A-Za-z]{5}"'
+exec eon ls --all --json
+! stdout 'offcron'
+! stdout '"name": "once"'
+stdout '"name": "live"'
+stdout '"name": "pending"'
+
+# Second prune finds nothing to do.
+exec eon prune
+stdout 'nothing to prune'
+
+# Bad filter values → usage error.
+! exec eon prune --kind weird
+stderr 'Usage error.*--kind'
+! exec eon prune --status weird
+stderr 'Usage error.*--status'
+
+# No positional arguments accepted.
+! exec eon prune extra

@@ -1,0 +1,31 @@
+# show / get behaviour. Reference jobs by name since IDs are random.
+
+exec eon add --cron '@hourly' --name x -- echo hi
+
+# Text view.
+exec eon show x
+stdout 'kind: +cron'
+stdout 'name: +x'
+
+# JSON view.
+exec eon show x --json
+stdout '"id": "[0-9A-Za-z]+"'
+
+# Aliases.
+exec eon get x --json
+stdout '"id": "[0-9A-Za-z]+"'
+
+# Unknown name → exit 3 (not found).
+! exec eon show nope
+stderr 'not found'
+
+# Unknown 5-char ID → exit 3.
+! exec eon show abcde
+stderr 'not found'
+
+# Bad shorthand → exit 2 (cobra usage).
+! exec eon show -1
+
+# show requires exactly one positional → exit 2.
+! exec eon show
+! exec eon show x extra

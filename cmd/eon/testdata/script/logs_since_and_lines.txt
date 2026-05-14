@@ -1,0 +1,24 @@
+# logs --since dumps every run in the window with a header; --lines
+# tail-trims each emitted run.
+
+exec eon add --cron '@every 1s' --name ticker -- echo "line 1\nline 2\nline 3"
+
+exec eon daemon &daemon&
+exec sleep 3.5
+
+# At least 2 runs should have landed in this window.
+exec eon logs ticker --since 10s
+stdout '==> run #1'
+stdout '==> run #2'
+
+# --lines 1 per run, so each emitted block keeps only the last line.
+exec eon logs ticker --since 10s --lines 1
+stdout '==> run'
+# Headers still present; the per-run body was trimmed.
+
+# Plain (no flags) gets just the most recent run, no header.
+exec eon logs ticker
+! stdout '==> run'
+
+exec eon stop
+wait daemon

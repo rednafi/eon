@@ -1,0 +1,27 @@
+# rm idempotence + cascade.
+
+exec eon add --cron '@hourly' --name a -- echo hi
+exec eon add --cron '@hourly' --name b -- echo hi
+
+exec eon rm a
+stdout 'deleted job [0-9A-Za-z]+'
+
+# Second rm of the same name → exit 3 (not found).
+! exec eon rm a
+stderr 'not found'
+
+# ls reflects the deletion.
+exec eon ls --json
+! stdout '"name": "a"'
+stdout '"name": "b"'
+
+# Alias.
+exec eon delete b
+stdout 'deleted job [0-9A-Za-z]+'
+
+# Empty ls.
+exec eon ls --json
+stdout '\[\]'
+
+# rm unknown → exit 3.
+! exec eon rm nope

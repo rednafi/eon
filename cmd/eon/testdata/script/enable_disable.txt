@@ -1,0 +1,22 @@
+# enable / disable idempotence.
+
+exec eon add --cron '@hourly' --name toggle -- echo hi
+
+exec eon disable toggle
+stdout 'disabled job [0-9A-Za-z]+'
+
+# Disabling again works (idempotent within the API; status stays disabled).
+exec eon disable toggle
+
+exec eon show toggle --json
+stdout '"status": "disabled"'
+
+exec eon enable toggle
+stdout 'enabled job [0-9A-Za-z]+'
+
+exec eon show toggle --json
+stdout '"status": "enabled"'
+
+# Unknown name → exit 3.
+! exec eon enable nope
+! exec eon disable nope

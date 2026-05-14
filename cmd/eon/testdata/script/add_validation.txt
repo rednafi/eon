@@ -1,0 +1,36 @@
+# Adverse 'add' inputs all surface specific exit codes. Stable codes
+# are the contract LLMs and shell pipelines rely on.
+
+# No args at all → cobra's arg-count check (exit 2).
+! exec eon add
+stderr 'Usage error.*requires at least'
+
+# No schedule flag (but command provided) → exit 2 (usage).
+! exec eon add -- echo hi
+stderr 'provide exactly one of --cron or --at'
+
+# Both schedule flags → exit 2.
+! exec eon add --cron '@hourly' --at '+1h' -- echo hi
+stderr 'provide exactly one of --cron or --at'
+
+# Missing '--' → exit 2.
+! exec eon add --cron '@hourly' echo hi
+stderr 'Usage error.*place the command'
+
+# Garbage cron expression → exit 5 (precondition).
+! exec eon add --cron 'garbage' -- echo hi
+stderr 'invalid cron'
+
+# Empty cron → exit 5.
+! exec eon add --cron '' -- echo hi
+
+# Past one-shot → exit 5.
+! exec eon add --at '2020-01-01T00:00:00Z' -- echo hi
+stderr 'not in the future'
+
+# Nonsense at value → exit 5.
+! exec eon add --at 'yesterday' -- echo hi
+stderr 'invalid time'
+
+# Negative day offset → exit 5.
+! exec eon add --at '+-1h' -- echo hi

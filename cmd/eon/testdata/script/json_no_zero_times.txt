@@ -1,0 +1,16 @@
+# Confirm zero time.Time values are omitted from JSON. This is the
+# omitzero fix — without it, fresh jobs leak '"last_run_at":
+# "0001-01-01T00:00:00Z"' which an LLM might interpret as a real time.
+
+exec eon add --cron '@hourly' --name c -- echo hi
+exec eon show c --json
+! stdout '0001-01-01'
+! stdout '"fire_at"'
+! stdout '"last_run_at"'
+! stdout '"last_status"'
+
+# Oneshot keeps fire_at populated.
+exec eon add --at '+1h' --name o -- echo hi
+exec eon show o --json
+stdout '"fire_at"'
+! stdout '0001-01-01'

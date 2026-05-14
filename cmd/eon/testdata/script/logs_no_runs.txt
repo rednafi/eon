@@ -1,0 +1,16 @@
+# logs on a job with no runs → exit 0, empty output (the job exists,
+# it just hasn't fired yet — Unix-style empty-state, not an error).
+
+exec eon add --cron '@hourly' --name quiet -- echo hi
+
+exec eon logs quiet
+! stdout .
+
+# Unknown name → exit 3.
+! exec eon logs nope
+
+# Unknown 5-char ID → exit 3.
+! exec eon logs abcde
+
+# Bad shorthand → exit 2 (cobra).
+! exec eon logs -1

@@ -1,0 +1,20 @@
+# status, text + json, with no daemon running.
+
+exec eon status
+stdout 'daemon:     stopped'
+stdout 'jobs:       total=0'
+
+exec eon status --json
+stdout '"running": false'
+stdout '"total": 0'
+stdout '"db_path"'
+stdout '"data_dir"'
+
+# After adding jobs, counts reflect.
+exec eon add --cron '@hourly' -- echo a
+exec eon add --at '+1h' -- echo b
+
+exec eon status --json
+stdout '"total": 2'
+stdout '"cron": 1'
+stdout '"oneshot_pending": 1'

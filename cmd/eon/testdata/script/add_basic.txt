@@ -1,0 +1,25 @@
+# Basic add — cron + oneshot — and verify they land in ls/show.
+
+exec eon add --cron '@hourly' --name backup -- echo hi
+stdout 'added job [0-9A-Za-z]+ \(cron, @hourly\)'
+
+exec eon add --at '+1h' --name morning -- echo wake
+stdout 'added job [0-9A-Za-z]+ \(oneshot, at .*\)'
+
+# Name defaults to the command when --name is omitted.
+exec eon add --cron '@daily' -- /bin/echo from-cmd
+stdout 'added job [0-9A-Za-z]+'
+
+# Three jobs created — verify by name (IDs are random 5-char strings).
+exec eon ls --json
+stdout '"name": "backup"'
+stdout '"name": "morning"'
+stdout '"cron": "@hourly"'
+
+# Show resolves by name.
+exec eon show backup --json
+stdout '"kind": "cron"'
+
+exec eon show morning --json
+stdout '"kind": "oneshot"'
+stdout '"fire_at"'

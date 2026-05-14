@@ -1,0 +1,15 @@
+# Two daemons against the same data dir must not coexist. The store-
+# backed claim makes this safe even under concurrent invocation.
+
+exec eon daemon &daemon&
+# 2 s leaves room for cold-start under parallel test load.
+exec sleep 2
+exec eon status
+stdout 'daemon:     running'
+
+# Second daemon refuses with exit 4 (conflict).
+! exec eon daemon
+stderr 'daemon already running'
+
+exec eon stop
+wait daemon

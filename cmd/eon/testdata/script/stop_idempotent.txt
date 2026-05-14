@@ -1,0 +1,7 @@
+# stop must be idempotent — no daemon is not an error condition.
+
+exec eon stop
+stdout 'no daemon running'
+
+exec eon stop
+stdout 'no daemon running'

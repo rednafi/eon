@@ -1,0 +1,39 @@
+# All accepted --at formats produce a valid one-shot job. We don't
+# check exact fire_at values (those are timezone-sensitive); we
+# verify the job lands without error and the kind/status are correct.
+
+exec eon add --at '+30m' --name a -- echo a
+exec eon show a --json
+stdout '"kind": "oneshot"'
+stdout '"fire_at"'
+
+exec eon add --at '+2h' --name b -- echo b
+exec eon show b --json
+stdout '"kind": "oneshot"'
+
+exec eon add --at '+45s' --name c -- echo c
+exec eon show c --json
+stdout '"kind": "oneshot"'
+
+exec eon add --at '+3d' --name d -- echo d
+exec eon show d --json
+stdout '"kind": "oneshot"'
+
+# AM/PM with "tomorrow".
+exec eon add --at 'tomorrow 9am' --name e -- echo e
+exec eon show e --json
+stdout '"kind": "oneshot"'
+
+exec eon add --at 'tomorrow 5:30pm' --name f -- echo f
+exec eon show f --json
+stdout '"kind": "oneshot"'
+
+# Tomorrow with 24-hour clock.
+exec eon add --at 'tomorrow 23:59' --name g -- echo g
+exec eon show g --json
+stdout '"kind": "oneshot"'
+
+# RFC3339 explicit.
+exec eon add --at '2099-12-31T23:59:00Z' --name h -- echo h
+exec eon show h --json
+stdout '"kind": "oneshot"'

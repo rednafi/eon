@@ -1,0 +1,24 @@
+# Many CLI invocations writing to the same SQLite file in parallel.
+# WAL + busy_timeout(5000) plus our SetMaxOpenConns(1) should make
+# every Add observable without contention errors.
+
+exec eon add --cron '@hourly' --name j1 -- echo 1 &one&
+exec eon add --cron '@hourly' --name j2 -- echo 2 &two&
+exec eon add --cron '@hourly' --name j3 -- echo 3 &three&
+exec eon add --cron '@hourly' --name j4 -- echo 4 &four&
+exec eon add --cron '@hourly' --name j5 -- echo 5 &five&
+exec eon add --cron '@hourly' --name j6 -- echo 6 &six&
+exec eon add --cron '@hourly' --name j7 -- echo 7 &seven&
+exec eon add --cron '@hourly' --name j8 -- echo 8 &eight&
+
+wait
+
+exec eon ls --json
+stdout '"name": "j1"'
+stdout '"name": "j2"'
+stdout '"name": "j3"'
+stdout '"name": "j4"'
+stdout '"name": "j5"'
+stdout '"name": "j6"'
+stdout '"name": "j7"'
+stdout '"name": "j8"'

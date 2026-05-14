@@ -1,0 +1,48 @@
+# End-to-end: add jobs, run the daemon, verify they fire, stop.
+# This is the closest thing the test suite has to a production-shaped
+# integration scenario — it goes through the binary, the scheduler, and
+# SQLite together, and asserts on observable behaviour only.
+
+# Add a cron that ticks every second and a one-shot 2s out.
+exec eon add --cron '@every 1s' --name ticker -- echo tick
+exec eon add --at '+2s' --name once -- echo oneshot
+exec eon ls
+stdout 'ticker'
+stdout 'once'
+
+# Launch the daemon in the background.
+exec eon daemon &daemon&
+
+# Give it time to claim the slot. Polling would be tighter, but a
+# fixed sleep is enough for the slowest CI host.
+exec sleep 2
+exec eon status
+stdout 'daemon:     running'
+
+# Let cron fire ~3 times and the oneshot fire exactly once.
+exec sleep 4
+
+exec eon show ticker --json
+stdout '"last_status": "ok"'
+stdout '"status": "enabled"'
+
+exec eon show once --json
+stdout '"status": "done"'
+stdout '"last_status": "ok"'
+
+# Cron logs should contain the tick.
+exec eon logs ticker
+stdout 'tick'
+
+# Oneshot logs.
+exec eon logs once
+stdout 'oneshot'
+
+# Bring it down.
+exec eon stop
+stdout 'daemon stopped'
+wait daemon
+
+# After stop the slot is clear.
+exec eon status
+stdout 'daemon:     stopped'

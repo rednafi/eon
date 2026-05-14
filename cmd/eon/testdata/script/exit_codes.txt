@@ -1,0 +1,68 @@
+# Pin every documented exit code.
+
+# 0 — success.
+exec eon add --cron '@hourly' -- echo hi
+exec eon ls
+exec eon status
+exec eon stop
+
+# 2 — usage. Cover application-level (errUsage) AND cobra-level
+# (UnknownCommand / UnknownFlag / ExactArgs / flag parse) variants.
+# The "Usage error:" prefix is emitted by exitCode==2 paths only,
+# so checking for it pins the mapping.
+! exec eon add
+! exec eon ls --kind weird
+! exec eon show abc
+
+# Unknown command / unknown flag → usage.
+! exec eon foo
+stderr '[Uu]nknown command'
+! exec eon --badflag
+stderr 'Usage error.*unknown flag'
+
+# Wrong arg count → usage. ExactArgs / RangeArgs / NoArgs violations.
+! exec eon show
+stderr 'Usage error.*accepts 1 arg'
+! exec eon show 1 extra
+stderr 'Usage error.*accepts 1 arg'
+! exec eon rm
+! exec eon enable
+! exec eon disable
+! exec eon logs
+! exec eon ls extra
+! exec eon status extra
+! exec eon stop extra
+# edit was removed — invocation hits the "unknown command" path.
+! exec eon edit something --cron '@hourly'
+stderr '[Uu]nknown command'
+
+# Cobra-level flag parse errors → usage.
+! exec eon logs 1 --since garbage
+stderr 'Usage error.*invalid argument'
+! exec eon show -1
+stderr 'Usage error.*shorthand'
+
+# 3 — not found.
+! exec eon show 9999
+! exec eon rm 9999
+! exec eon enable 9999
+! exec eon disable 9999
+! exec eon logs 9999
+
+# 5 — precondition failed (invalid input that's syntactically reachable).
+! exec eon add --cron 'garbage' -- echo
+! exec eon add --at 'yesterday' -- echo
+! exec eon add --at '1970-01-01T00:00:00Z' -- echo
+# @every with non-positive duration would tight-loop the scheduler.
+! exec eon add --cron '@every 0s' -- echo
+stderr 'invalid cron.*positive'
+! exec eon add --cron '@every -1s' -- echo
+stderr 'invalid cron.*positive'
+
+# logs flag-value sanity (negative values must be rejected, not
+# silently mis-interpreted).
+exec eon add --cron '@hourly' --name logreg -- /bin/echo hi
+! exec eon logs logreg --lines -1
+stderr 'Usage error.*--lines'
+! exec eon logs logreg --since -1m
+stderr 'Usage error.*--since'

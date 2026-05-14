@@ -1,0 +1,56 @@
+# Help text is what humans and LLMs read first — pin the headline
+# parts so a refactor that removes them is caught.
+
+exec eon --help
+stdout 'cron-style'
+stdout 'add '
+stdout 'ls '
+stdout 'logs '
+stdout 'install'
+# daemon is hidden — the supervisor unit is the supported entrypoint.
+! stdout '^\s+daemon\s'
+
+# `eon add --help` must enumerate the cron + at syntax in enough
+# detail to write a valid expression without external docs. We pin
+# the section headers and several representative tokens.
+exec eon add --help
+stdout 'CRON SYNTAX'
+stdout 'MINUTE HOUR DAY-OF-MONTH MONTH DAY-OF-WEEK'
+stdout '0-59'
+stdout '0-23'
+stdout 'jan,feb,mar'
+stdout 'sun,mon,tue'
+stdout 'A,B,C'
+stdout '\*/N'
+stdout 'A-B/N'
+stdout '@yearly'
+stdout '@monthly'
+stdout '@weekly'
+stdout '@daily'
+stdout '@hourly'
+stdout '@every DURATION'
+stdout 'NOT supported'
+stdout '@reboot'
+stdout 'ONE-SHOT TIME'
+stdout 'RFC3339'
+stdout 'Relative offset'
+stdout '\+30s'
+stdout '\+3d'
+stdout 'today 17:00'
+stdout 'tomorrow 9am'
+
+exec eon logs --help
+stdout '--follow'
+stdout '--lines'
+stdout '--since'
+stdout 'Behaviour matrix'
+
+exec eon ls --help
+stdout '--kind'
+stdout '--status'
+stdout '--json'
+
+# daemon is hidden but invocable; --help still works for the supervisor.
+exec eon daemon --help
+stdout 'Internal entrypoint'
+stdout 'SIGHUP'

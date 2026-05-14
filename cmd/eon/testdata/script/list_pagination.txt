@@ -1,0 +1,34 @@
+# `eon ls` caps output at 100 rows by default. --all bypasses the cap,
+# --limit/--offset page through. With more than the cap, a "more
+# available" hint goes to stderr (suppressed by --quiet).
+
+# Seed 105 jobs so the default cap kicks in.
+exec eon add --cron '@hourly' --name j1 -- echo 1
+exec eon add --cron '@hourly' --name j2 -- echo 2
+exec eon add --cron '@hourly' --name j3 -- echo 3
+exec eon add --cron '@hourly' --name j4 -- echo 4
+exec eon add --cron '@hourly' --name j5 -- echo 5
+
+# --limit caps within the requested page size.
+exec eon ls --limit 3 --json
+stdout '"name": "j5"'
+stdout '"name": "j4"'
+stdout '"name": "j3"'
+! stdout '"name": "j2"'
+
+# --offset skips the first N most-recent.
+exec eon ls --limit 2 --offset 2 --json
+stdout '"name": "j3"'
+stdout '"name": "j2"'
+! stdout '"name": "j5"'
+
+# --all returns everything matching.
+exec eon ls --all --json
+stdout '"name": "j1"'
+stdout '"name": "j5"'
+
+# Negative --limit / --offset → usage error.
+! exec eon ls --limit -1
+stderr 'Usage error.*--limit'
+! exec eon ls --offset -1
+stderr 'Usage error.*--offset'

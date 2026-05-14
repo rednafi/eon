@@ -1,0 +1,37 @@
+# `ls` filters and JSON output.
+
+exec eon add --cron '@hourly' --name c1 -- echo a
+exec eon add --cron '@daily'  --name c2 -- echo b
+exec eon add --at  '+1h'      --name o1 -- echo c
+
+# No filter → all three jobs present (verified by name; IDs are random).
+exec eon ls --json
+stdout '"name": "c1"'
+stdout '"name": "c2"'
+stdout '"name": "o1"'
+
+# Kind cron.
+exec eon ls --kind cron --json
+stdout '"name": "c1"'
+stdout '"name": "c2"'
+! stdout '"name": "o1"'
+
+# Kind oneshot.
+exec eon ls --kind oneshot --json
+stdout '"name": "o1"'
+! stdout '"name": "c1"'
+
+# Status enabled = all 3 at this point.
+exec eon ls --status enabled --json
+stdout '"name": "c1"'
+stdout '"name": "c2"'
+stdout '"name": "o1"'
+
+# After disable, status enabled drops to 2.
+exec eon disable c2
+exec eon ls --status enabled --json
+! stdout '"name": "c2"'
+
+# Invalid filter values → exit 2.
+! exec eon ls --kind weird
+! exec eon ls --status weird
