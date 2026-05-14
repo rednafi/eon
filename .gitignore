@@ -1,9 +1,12 @@
 /bin/
 *.test
-!Dockerfile.test
 *.out
 .DS_Store
 .idea/
 .vscode/
+
+# Local editor / agent scratch dir.
 .claude/
-.edge-case-findings.md
+
+# goreleaser dist output.
+/dist/
