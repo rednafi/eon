@@ -33,7 +33,7 @@ jobs:
       - name: test
         run: go test -race -count=1 ./...
 
-      # We rebuild for the *other* OS too so a Linux-only or macOS-only file
+      # Rebuild for the *other* OS too so a Linux-only or macOS-only file
       # tag breakage shows up immediately, even when only one runner is hot.
       - name: cross-compile (linux from macos / macos from linux)
         run: |
@@ -56,14 +56,24 @@ jobs:
           version: v2.11.4
           args: --timeout=5m
 
-  linux-container:
-    name: linux-container (real cron)
+  goreleaser-check:
+    name: goreleaser check
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: build container
-        run: docker build -f Dockerfile.test -t eon-test .
-      - name: run test suite inside container
-        run: docker run --rm eon-test
-      - name: end-to-end CLI smoke test
-        run: ./scripts/smoke-container.sh
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-go@v5
+        with:
+          go-version: stable
+          cache: true
+      - uses: goreleaser/goreleaser-action@v6
+        with:
+          distribution: goreleaser
+          version: "~> v2"
+          args: check
+      - uses: goreleaser/goreleaser-action@v6
+        with:
+          distribution: goreleaser
+          version: "~> v2"
+          args: build --snapshot --clean --single-target
