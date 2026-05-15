@@ -12,7 +12,7 @@ import (
 )
 
 func newSeppukuCmd() *cobra.Command {
-	var confirm bool
+	var force bool
 	cmd := &cobra.Command{
 		Use:   "seppuku",
 		Short: "Purge every trace of eon from this machine.",
@@ -20,15 +20,15 @@ func newSeppukuCmd() *cobra.Command {
 delete the data directory (database, lock files, log) and finally remove
 the eon binary itself.
 
-Destructive and irreversible. Runs as a dry run by default — prints
-the plan without touching anything. Pass --yes to actually perform it.`,
-		Example: "  eon seppuku            # dry-run; show the plan\n  eon seppuku --yes      # actually wipe everything",
+Destructive and irreversible. Defaults to a dry run that prints the
+plan without touching anything. Pass --force (-f) to actually do it.`,
+		Example: "  eon seppuku            # dry-run; show the plan\n  eon seppuku --force    # actually wipe everything",
 		Args:    cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			return seppuku(cmd, confirm)
+			return seppuku(cmd, force)
 		},
 	}
-	cmd.Flags().BoolVar(&confirm, "yes", false, "actually perform the destructive operations (default is dry-run)")
+	cmd.Flags().BoolVarP(&force, "force", "f", false, "actually perform the destructive operations (default is dry-run)")
 	return cmd
 }
 
@@ -86,7 +86,7 @@ func seppuku(cmd *cobra.Command, perform bool) error {
 		fmt.Fprintln(out, "done")
 	} else {
 		fmt.Fprintln(out, "(dry run; nothing was modified)")
-		fmt.Fprintln(out, "Re-run with --yes to actually perform the operations above.")
+		fmt.Fprintln(out, "Re-run with --force (-f) to actually perform the operations above.")
 	}
 	return nil
 }

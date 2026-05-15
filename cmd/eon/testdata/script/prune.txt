@@ -1,5 +1,5 @@
 # `eon prune` removes jobs that won't fire (done one-shots and
-# disabled jobs). Default is dry-run; --yes performs the delete.
+# disabled jobs). Default is dry-run; --force performs the delete.
 
 # Seed: 1 enabled cron, 1 disabled cron, 1 enabled oneshot (future),
 # 1 done oneshot (via daemon fire).
@@ -22,7 +22,8 @@ stdout 'offcron'
 stdout 'once'
 ! stdout '  live'
 ! stdout 'pending'
-stdout 'pass --yes'
+stdout 'dry run; nothing was modified'
+stdout 'Re-run with --force'
 
 # Nothing was actually deleted.
 exec eon ls --all --json
@@ -55,8 +56,8 @@ exec eon prune --json
 stdout '"name": "offcron"'
 stdout '"name": "once"'
 
-# JSON --yes emits the array of deleted IDs (5-char alphanumeric).
-exec eon prune --yes --json
+# JSON --force emits the array of deleted IDs (5-char alphanumeric).
+exec eon prune --force --json
 stdout '"[0-9A-Za-z]{5}",'
 stdout '"[0-9A-Za-z]{5}"'
 exec eon ls --all --json
