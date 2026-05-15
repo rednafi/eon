@@ -18,8 +18,8 @@ import (
 )
 
 const (
-	launchLabel = "dev.eon.eond"   // launchd plist Label (macOS)
-	unitName    = "eond.service"   // systemd --user unit filename (linux)
+	launchLabel = "dev.eon.eond" // launchd plist Label (macOS)
+	unitName    = "eond.service" // systemd --user unit filename (linux)
 )
 
 // Install writes the platform supervisor unit and starts it. The
