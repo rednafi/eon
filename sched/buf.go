@@ -1,48 +1,52 @@
 package sched
 
 import (
-	"bytes"
+	"slices"
 	"sync"
 )
 
 // cappedBuf is a thread-safe writer that retains at most cap bytes of
 // the data piped into it. Excess output is dropped and a truncation
-// notice is appended exactly once when Bytes() is read.
+// marker is appended exactly once when Bytes() is read. exec.Cmd
+// writes stdout and stderr concurrently to the same writer, so this
+// type owns the synchronisation.
 type cappedBuf struct {
 	mu        sync.Mutex
-	buf       bytes.Buffer
+	data      []byte // len <= cap, never reallocated
 	cap       int
 	truncated bool
 }
 
-func newCappedBuf(capBytes int) *cappedBuf { return &cappedBuf{cap: capBytes} }
+func newCappedBuf(capBytes int) *cappedBuf {
+	return &cappedBuf{data: make([]byte, 0, capBytes), cap: capBytes}
+}
 
 func (c *cappedBuf) Write(p []byte) (int, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	remaining := c.cap - c.buf.Len()
-	if remaining <= 0 {
+	n := len(p)
+	if room := c.cap - len(c.data); room < n {
 		c.truncated = true
-		// Pretend we accepted everything: the runner shouldn't see a
-		// short-write as an error and abort the job over log size.
-		return len(p), nil
+		if room <= 0 {
+			// Pretend we accepted everything: the runner shouldn't
+			// see a short-write as an error and abort the job over
+			// log size.
+			return n, nil
+		}
+		p = p[:room]
 	}
-	if len(p) > remaining {
-		c.buf.Write(p[:remaining])
-		c.truncated = true
-		return len(p), nil
-	}
-	return c.buf.Write(p)
+	c.data = append(c.data, p...)
+	return n, nil
 }
 
 func (c *cappedBuf) Bytes() []byte {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if !c.truncated {
-		return append([]byte(nil), c.buf.Bytes()...)
+		return slices.Clone(c.data)
 	}
-	out := make([]byte, 0, c.buf.Len()+len(truncMarker))
-	out = append(out, c.buf.Bytes()...)
+	out := make([]byte, 0, len(c.data)+len(truncMarker))
+	out = append(out, c.data...)
 	out = append(out, truncMarker...)
 	return out
 }
