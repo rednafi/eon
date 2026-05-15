@@ -5,13 +5,13 @@
 class Eon < Formula
   desc "Cron and one-shot job scheduler that runs in-process"
   homepage "https://github.com/rednafi/eon"
-  version "0.1.2"
+  version "0.1.3"
   license "MIT"
 
   on_macos do
     if Hardware::CPU.arm?
-      url "https://github.com/rednafi/eon/releases/download/v0.1.2/eon-v0.1.2-darwin-arm64.tar.gz"
-      sha256 "e66eb77103a04c85960df1c93af5b732274abde5f0aba766c328d4369199070a"
+      url "https://github.com/rednafi/eon/releases/download/v0.1.3/eon-v0.1.3-darwin-arm64.tar.gz"
+      sha256 "39d7e96afb5058be33897489aad8e95759d7f558687dfcd96430a00e463f1f8b"
 
       define_method(:install) do
         bin.install "eon"
@@ -21,15 +21,15 @@ class Eon < Formula
 
   on_linux do
     if Hardware::CPU.intel? && Hardware::CPU.is_64_bit?
-      url "https://github.com/rednafi/eon/releases/download/v0.1.2/eon-v0.1.2-linux-amd64.tar.gz"
-      sha256 "91a691cd694e2b63791b6460005656a62c6981e9da5f218b45a72cc9875d50c5"
+      url "https://github.com/rednafi/eon/releases/download/v0.1.3/eon-v0.1.3-linux-amd64.tar.gz"
+      sha256 "367b2a416d046a28cb741d05ae7cff78e1fe4e0ae566a486f86222eab8c54db1"
       define_method(:install) do
         bin.install "eon"
       end
     end
     if Hardware::CPU.arm? && Hardware::CPU.is_64_bit?
-      url "https://github.com/rednafi/eon/releases/download/v0.1.2/eon-v0.1.2-linux-arm64.tar.gz"
-      sha256 "e76e010a444fe9c5c11da4e60f56e3641c0372d31aa7eb63c8b33dc0c4293c12"
+      url "https://github.com/rednafi/eon/releases/download/v0.1.3/eon-v0.1.3-linux-arm64.tar.gz"
+      sha256 "81b409bc12f51009adc120740d0487bc388803d111ac28fc9454b5141f94ab22"
       define_method(:install) do
         bin.install "eon"
       end
