@@ -1,0 +1,23 @@
+# Subcommand aliases must behave identically to their canonical name.
+# rm/delete is covered in rm_lifecycle.txt; show/get in show_get.txt;
+# this file pins the remaining pair: add → create, new and ls → list.
+
+# `eon create` / `eon new` are the same code path as `eon add`.
+exec eon create --cron '@hourly' --name viacreate -- echo a
+stdout 'added job [0-9A-Za-z]+'
+exec eon new --cron '@hourly' --name vianew -- echo b
+stdout 'added job [0-9A-Za-z]+'
+
+# `eon list` is the alias for `eon ls`. JSON shape must match.
+exec eon list --json
+stdout '"name": "viacreate"'
+stdout '"name": "vianew"'
+
+# Alias help still surfaces the same parent text.
+exec eon create --help
+stdout 'CRON SYNTAX'
+exec eon new --help
+stdout 'ONE-SHOT TIME'
+exec eon list --help
+stdout '--kind'
+stdout '--status'

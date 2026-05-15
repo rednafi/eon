@@ -1,0 +1,58 @@
+# Help is the discoverability contract. help_text.txt pins the rich
+# sections (cron syntax, behaviour matrix). This file pins the *forms*
+# — version flags, the `help` subcommand, the -h short flag, and a
+# smoke probe for every remaining subcommand's --help.
+
+# --version / -v.
+exec eon --version
+stdout 'version'
+exec eon -v
+stdout 'version'
+
+# `eon help` with no argument shows the top-level overview.
+exec eon help
+stdout 'cron-style'
+stdout 'add '
+
+# `eon help <sub>` mirrors `eon <sub> --help`.
+exec eon help add
+stdout 'CRON SYNTAX'
+exec eon help ls
+stdout '--kind'
+exec eon help logs
+stdout 'Behaviour matrix'
+
+# -h short flag must work for the root.
+exec eon -h
+stdout 'cron-style'
+
+# Every subcommand must respond to --help with non-empty output.
+# We don't pin the specific contents — that would duplicate
+# help_text.txt — only that the path doesn't crash and yields
+# at least the USAGE block.
+exec eon show --help
+stdout 'USAGE'
+exec eon rm --help
+stdout 'USAGE'
+exec eon prune --help
+stdout 'USAGE'
+exec eon enable --help
+stdout 'USAGE'
+exec eon disable --help
+stdout 'USAGE'
+exec eon status --help
+stdout 'USAGE'
+exec eon install --help
+stdout 'USAGE'
+exec eon uninstall --help
+stdout 'USAGE'
+exec eon stop --help
+stdout 'USAGE'
+exec eon seppuku --help
+stdout 'USAGE'
+
+# Nested subcommand help.
+exec eon debug --help
+stdout 'USAGE'
+exec eon debug db --help
+stdout 'USAGE'

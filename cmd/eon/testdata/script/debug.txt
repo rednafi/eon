@@ -1,0 +1,19 @@
+# debug is a parent for inspection subcommands and prints its own
+# help when invoked without one. The `db` leaf shells into sqlite3
+# which we can't drive non-interactively from a script, so we cover
+# everything except the actual shell-out here.
+
+# Bare `eon debug` shows its help.
+exec eon debug
+stdout 'Subcommands for poking'
+stdout 'db'
+
+# Unknown debug subcommand is a usage error (exit 2), not a silent
+# fallthrough to parent help.
+! exec eon debug bogus
+stderr 'unknown subcommand'
+
+# The `db` leaf's --help is reachable without invoking sqlite3.
+exec eon debug db --help
+stdout 'sqlite3'
+stdout 'USAGE'
