@@ -2,10 +2,6 @@ version: 2
 
 project_name: eon
 
-before:
-  hooks:
-    - go mod tidy
-
 builds:
   - id: eon
     main: ./cmd/eon
