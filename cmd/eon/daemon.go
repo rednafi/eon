@@ -21,9 +21,9 @@ func newDaemonCmd() *cobra.Command {
 		Hidden: true,
 		Short:  "Run the in-process scheduler until SIGTERM (internal).",
 		Long: `Internal entrypoint invoked by the launchd/systemd unit that
-'eon install' writes. Not intended for direct user invocation —
-use 'eon install' to register a supervised daemon and 'eon stop'
-to ask it to exit.
+'eon install' writes. Not intended for direct user invocation. Use
+'eon install' to register a supervised daemon and 'eon stop' to ask
+it to exit.
 
 Holds an OS-level flock on $DATA/eon.lock for its lifetime so a
 second daemon against the same data dir fails immediately with
@@ -50,7 +50,7 @@ re-evaluation after a CLI mutation. Exits cleanly on SIGTERM/SIGINT.`,
 			}
 			defer release()
 
-			st, err := store.Open(dir)
+			st, err := store.Open(cmd.Context(), dir)
 			if err != nil {
 				return err
 			}

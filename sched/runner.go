@@ -9,6 +9,8 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"syscall"
+	"time"
 
 	"github.com/rednafi/eon"
 )
@@ -21,16 +23,30 @@ type Runner interface {
 }
 
 // ExecRunner is the production [Runner]: shells out via os/exec and
-// streams merged stdout+stderr into out.
-type ExecRunner struct{}
+// streams merged stdout+stderr into out. When GracePeriod > 0 the
+// runner sends SIGTERM to the child on context cancellation and lets
+// the os/exec runtime escalate to SIGKILL after GracePeriod elapses;
+// a zero value falls back to Go's default (immediate SIGKILL).
+type ExecRunner struct {
+	GracePeriod time.Duration
+}
 
-func (ExecRunner) Run(ctx context.Context, job eon.Job, out io.Writer) (int, error) {
+func (e ExecRunner) Run(ctx context.Context, job eon.Job, out io.Writer) (int, error) {
 	if len(job.Command) == 0 {
 		return -1, errors.New("scheduler: empty command")
 	}
 	cmd := exec.CommandContext(ctx, job.Command[0], job.Command[1:]...)
 	cmd.Stdout = out
 	cmd.Stderr = out
+	if e.GracePeriod > 0 {
+		// Send SIGTERM on cancellation so the child can run cleanup;
+		// the os/exec runtime then waits up to WaitDelay before
+		// closing pipes and force-killing. With WaitDelay unset, a
+		// child that traps SIGTERM and never exits would hang Wait
+		// indefinitely.
+		cmd.Cancel = func() error { return cmd.Process.Signal(syscall.SIGTERM) }
+		cmd.WaitDelay = e.GracePeriod
+	}
 	if len(job.Env) > 0 {
 		// Use the snapshot from `eon add` time so the child sees the
 		// user's PATH (and the rest of their shell env), bypassing the
@@ -44,18 +60,19 @@ func (ExecRunner) Run(ctx context.Context, job eon.Job, out io.Writer) (int, err
 			cmd.Err = nil
 		}
 	}
-	if err := cmd.Run(); err != nil {
-		if exitErr, ok := errors.AsType[*exec.ExitError](err); ok {
-			// Non-zero exits are job outcomes, not scheduler errors.
-			return exitErr.ExitCode(), nil
-		}
-		// Failure to *start* (binary missing, permission denied, …).
-		// The user needs to be able to find out why from `eon logs`,
-		// so persist the reason alongside any prior output.
-		_, _ = fmt.Fprintf(out, "eon: failed to start: %v\n", err)
-		return -1, err
+	err := cmd.Run()
+	if cmd.ProcessState != nil {
+		// The child actually ran. Report ProcessState directly rather
+		// than parsing err, because a Cancel-driven SIGTERM that the
+		// child handled cleanly produces a useful exit code here but
+		// surfaces only as a context error via err.
+		return cmd.ProcessState.ExitCode(), nil
 	}
-	return 0, nil
+	// Process never started (binary missing, permission denied, …).
+	// The user needs to be able to find out why from `eon logs`, so
+	// persist the reason alongside any prior output.
+	_, _ = fmt.Fprintf(out, "eon: failed to start: %v\n", err)
+	return -1, err
 }
 
 // envPath returns the PATH value from a `KEY=VALUE` slice, or "" if

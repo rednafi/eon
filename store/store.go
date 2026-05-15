@@ -60,10 +60,15 @@ const jobCols = `id, kind, name, command_json, env_json, cron_expr, fire_at,
 // [scanRun]. Same alignment invariant as [jobCols].
 const runCols = `id, job_id, started_at, finished_at, exit_code, status`
 
-// Retention: keep up to 100 runs per job; drop runs older than 100 days.
+// Retention axes applied by [Store.GC]:
+//   - RetentionPerJob: keep up to this many most-recent runs per job.
+//   - RetentionMaxAge: drop runs older than this regardless of job.
+//   - RetentionMaxTotal: hard ceiling on the runs table; oldest rows are
+//     trimmed across all jobs until the total fits.
 const (
-	RetentionPerJob = 100
-	RetentionMaxAge = 100 * 24 * time.Hour
+	RetentionPerJob   = 100
+	RetentionMaxAge   = 100 * 24 * time.Hour
+	RetentionMaxTotal = 144_000
 )
 
 // DefaultListLimit caps [Store.ListJobs] output when no Limit is set.
@@ -97,8 +102,9 @@ type Store struct {
 
 // Open returns a [Store] writing to dataDir/eon.db with the schema
 // applied. Pass an empty dataDir to use an in-memory database; this
-// is intended for tests.
-func Open(dataDir string) (*Store, error) {
+// is intended for tests. ctx scopes the schema-apply and migration
+// queries; it does not bound the lifetime of the returned Store.
+func Open(ctx context.Context, dataDir string) (*Store, error) {
 	var dbPath, dsn string
 	switch dataDir {
 	case "":
@@ -109,10 +115,15 @@ func Open(dataDir string) (*Store, error) {
 			return nil, fmt.Errorf("mkdir data dir: %w", err)
 		}
 		dbPath = filepath.Join(dataDir, "eon.db")
+		// busy_timeout MUST be first: pragmas are applied in DSN order,
+		// and journal_mode(WAL) on a fresh database needs an exclusive
+		// lock. Without busy_timeout already armed, concurrent openers
+		// (multiple CLI invocations racing against a brand-new file)
+		// get SQLITE_BUSY immediately instead of waiting their turn.
 		dsn = "file:" + url.PathEscape(dbPath) +
-			"?_pragma=journal_mode(WAL)" +
+			"?_pragma=busy_timeout(30000)" +
+			"&_pragma=journal_mode(WAL)" +
 			"&_pragma=foreign_keys(1)" +
-			"&_pragma=busy_timeout(30000)" +
 			"&_pragma=synchronous(NORMAL)"
 	}
 
@@ -122,7 +133,6 @@ func Open(dataDir string) (*Store, error) {
 	}
 	db.SetMaxOpenConns(1)
 
-	ctx := context.Background()
 	if err := applySchema(ctx, db); err != nil {
 		_ = db.Close()
 		return nil, err
@@ -137,8 +147,16 @@ func Open(dataDir string) (*Store, error) {
 // done as ALTER TABLE … ADD COLUMN with IF NOT EXISTS via a
 // pragma_table_info check, so older databases pick up new columns on
 // startup without forcing the user to seppuku.
+//
+// Writes here can race with concurrent openers against the same data
+// dir (e.g. many CLI invocations launched in parallel). DSN-level
+// busy_timeout doesn't cover the very first journal_mode/WAL setup
+// reliably, so the DDL steps are wrapped in [retryOnBusy].
 func applySchema(ctx context.Context, db *sql.DB) error {
-	if _, err := db.ExecContext(ctx, schema); err != nil {
+	if err := retryOnBusy(ctx, func() error {
+		_, err := db.ExecContext(ctx, schema)
+		return err
+	}); err != nil {
 		return fmt.Errorf("apply schema: %w", err)
 	}
 	for _, m := range migrations {
@@ -149,11 +167,63 @@ func applySchema(ctx context.Context, db *sql.DB) error {
 		if has {
 			continue
 		}
-		if _, err := db.ExecContext(ctx, m.alter); err != nil {
+		if err := retryOnBusy(ctx, func() error {
+			_, err := db.ExecContext(ctx, m.alter)
+			return err
+		}); err != nil {
+			// Another process may have raced us to the same migration.
+			// Treat that as success: the column we wanted is now present.
+			if has2, err2 := columnExists(ctx, db, m.table, m.column); err2 == nil && has2 {
+				continue
+			}
 			return fmt.Errorf("add column %s.%s: %w", m.table, m.column, err)
 		}
 	}
 	return nil
+}
+
+// sqliteBusy is SQLITE_BUSY — the primary result code for write
+// contention. Extended codes (SQLITE_BUSY_RECOVERY, _SNAPSHOT,
+// _TIMEOUT) share its low byte. Stable across SQLite versions; part
+// of SQLite's public C API. See https://www.sqlite.org/rescode.html.
+const sqliteBusy = 5
+
+// isBusy detects SQLITE_BUSY using modernc's typed error. Used by
+// [retryOnBusy] to bound the schema-apply retry loop.
+func isBusy(err error) bool {
+	se, ok := errors.AsType[*sqlite.Error](err)
+	return ok && se.Code()&0xff == sqliteBusy
+}
+
+// retryOnBusy invokes fn with exponential backoff while it returns
+// SQLITE_BUSY. The DSN-level busy_timeout covers most cases, but
+// schema DDL against a freshly-created database can race the
+// journal_mode(WAL) transition; this is the safety net for that
+// window. Caps at ~6s total wait, which is well within the implicit
+// time budget of a CLI command.
+func retryOnBusy(ctx context.Context, fn func() error) error {
+	const maxAttempts = 8
+	delay := 25 * time.Millisecond
+	var lastErr error
+	for range maxAttempts {
+		err := fn()
+		if err == nil {
+			return nil
+		}
+		if !isBusy(err) {
+			return err
+		}
+		lastErr = err
+		select {
+		case <-ctx.Done():
+			return context.Cause(ctx)
+		case <-time.After(delay):
+		}
+		if delay < time.Second {
+			delay *= 2
+		}
+	}
+	return lastErr
 }
 
 // migrations is the additive set of columns added after the initial
@@ -533,13 +603,15 @@ func (s *Store) OpenRunLog(ctx context.Context, runID int64) (io.ReadCloser, err
 	return io.NopCloser(bytes.NewReader(out)), nil
 }
 
-
-// GC enforces retention: drops runs older than maxAge and trims each
-// job's run history to perJob most-recent rows. With the schema's
-// ON DELETE CASCADE there is no out-of-band cleanup work; deleting
-// rows is enough. The scheduler calls GC at startup; the package-level
-// defaults are [RetentionPerJob] and [RetentionMaxAge].
-func (s *Store) GC(ctx context.Context, now time.Time, perJob int, maxAge time.Duration) error {
+// GC enforces retention along three axes, in order: drop runs older
+// than maxAge; trim each job's run history to perJob most-recent
+// rows; cap the total runs table at maxTotal rows by dropping the
+// oldest across all jobs. A non-positive maxTotal disables the
+// global cap. With the schema's ON DELETE CASCADE there is no
+// out-of-band cleanup work; deleting rows is enough. The scheduler
+// calls GC at startup and periodically; the package-level defaults
+// are [RetentionPerJob], [RetentionMaxAge], and [RetentionMaxTotal].
+func (s *Store) GC(ctx context.Context, now time.Time, perJob int, maxAge time.Duration, maxTotal int) error {
 	cutoff := now.Add(-maxAge).UnixNano()
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
@@ -561,6 +633,18 @@ func (s *Store) GC(ctx context.Context, now time.Time, perJob int, maxAge time.D
 		)`
 	if _, err := tx.ExecContext(ctx, trimQ, perJob); err != nil {
 		return fmt.Errorf("gc by count: %w", err)
+	}
+	if maxTotal > 0 {
+		const capQ = `
+			DELETE FROM runs
+			WHERE id IN (
+				SELECT id FROM runs
+				ORDER BY started_at DESC, id DESC
+				LIMIT -1 OFFSET ?
+			)`
+		if _, err := tx.ExecContext(ctx, capQ, maxTotal); err != nil {
+			return fmt.Errorf("gc by total: %w", err)
+		}
 	}
 	if err := tx.Commit(); err != nil {
 		return fmt.Errorf("gc commit: %w", err)

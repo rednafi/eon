@@ -17,9 +17,14 @@ import (
 	"github.com/rednafi/eon/store"
 )
 
+// errTestCtxEnded is the cause attached to test-scoped contexts so
+// a context-cancel failure surfaces a recognisable error in t.Fatal
+// output instead of the generic context.Canceled/DeadlineExceeded.
+var errTestCtxEnded = errors.New("test context ended")
+
 func newStore(t *testing.T) *store.Store {
 	t.Helper()
-	r, err := store.Open(t.TempDir())
+	r, err := store.Open(t.Context(), t.TempDir())
 	if err != nil {
 		t.Fatalf("store.Open: %v", err)
 	}
@@ -61,7 +66,7 @@ func TestSchedulerFiresCronJob(t *testing.T) {
 		Runner:        rr,
 	})
 
-	ctx, cancel := context.WithTimeout(t.Context(), 3*time.Second)
+	ctx, cancel := context.WithTimeoutCause(t.Context(), 3*time.Second, errTestCtxEnded)
 	defer cancel()
 
 	now := time.Now()
@@ -92,7 +97,7 @@ func TestSchedulerSkipsOverlap(t *testing.T) {
 		Runner:        rr,
 	})
 
-	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+	ctx, cancel := context.WithTimeoutCause(t.Context(), 5*time.Second, errTestCtxEnded)
 	defer cancel()
 
 	now := time.Now()
@@ -137,7 +142,7 @@ func TestSchedulerHonoursDisabled(t *testing.T) {
 		Runner: rr,
 	})
 
-	ctx, cancel := context.WithTimeout(t.Context(), 2*time.Second)
+	ctx, cancel := context.WithTimeoutCause(t.Context(), 2*time.Second, errTestCtxEnded)
 	defer cancel()
 
 	now := time.Now()
@@ -167,7 +172,7 @@ func TestSchedulerWakePicksUpNewJob(t *testing.T) {
 	rr := &recRunner{}
 	s := New(st, Config{Runner: rr})
 
-	ctx, cancel := context.WithTimeout(t.Context(), 3*time.Second)
+	ctx, cancel := context.WithTimeoutCause(t.Context(), 3*time.Second, errTestCtxEnded)
 	defer cancel()
 
 	go func() { _ = s.Start(ctx) }()
@@ -201,7 +206,7 @@ func TestSchedulerMissedOneshotFiresOnStartup(t *testing.T) {
 		Runner: rr,
 	})
 
-	ctx, cancel := context.WithTimeout(t.Context(), 2*time.Second)
+	ctx, cancel := context.WithTimeoutCause(t.Context(), 2*time.Second, errTestCtxEnded)
 	defer cancel()
 
 	now := time.Now()
@@ -229,7 +234,7 @@ func TestSchedulerOneshotMarksDone(t *testing.T) {
 		Runner: rr,
 	})
 
-	ctx, cancel := context.WithTimeout(t.Context(), 2*time.Second)
+	ctx, cancel := context.WithTimeoutCause(t.Context(), 2*time.Second, errTestCtxEnded)
 	defer cancel()
 
 	now := time.Now()
@@ -282,6 +287,36 @@ func TestExecRunnerResolvesBinaryViaSnapshotPATH(t *testing.T) {
 	}
 }
 
+func TestExecRunnerHonoursSIGTERMGrace(t *testing.T) {
+	// Child traps SIGTERM and exits 7. With a 2s grace period the
+	// runtime sends SIGTERM (not SIGKILL) on ctx cancel, so the
+	// trap fires and exit code is 7. With no grace (default),
+	// exec.CommandContext would SIGKILL immediately and the
+	// trap would never run.
+	var sb strBuf
+	ctx, cancel := context.WithCancelCause(t.Context())
+	defer cancel(nil)
+
+	runner := ExecRunner{GracePeriod: 2 * time.Second}
+	go func() {
+		time.Sleep(150 * time.Millisecond)
+		cancel(errTestCtxEnded)
+	}()
+
+	code, err := runner.Run(ctx, eon.Job{
+		// `sleep` is a child of sh and absorbs no signals delivered to
+		// sh itself; the `& wait $!` form makes sh's wait interruptible
+		// by the trapped signal so the trap actually fires.
+		Command: []string{"/bin/sh", "-c", "trap 'exit 7' TERM; sleep 30 & wait $!"},
+	}, &sb)
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if code != 7 {
+		t.Fatalf("exit code = %d, want 7 (SIGTERM trap)", code)
+	}
+}
+
 func TestExecRunnerCapturesNonZeroExit(t *testing.T) {
 	// Sanity check the real runner without involving the scheduler.
 	var sb strBuf
@@ -304,7 +339,7 @@ func TestSchedulerCapsLargeOutput(t *testing.T) {
 		// capping path with a chatty process.
 	})
 
-	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+	ctx, cancel := context.WithTimeoutCause(t.Context(), 5*time.Second, errTestCtxEnded)
 	defer cancel()
 
 	now := time.Now()
@@ -372,6 +407,97 @@ func TestExecRunnerCapturesStartErrorInOutput(t *testing.T) {
 	if !strings.Contains(sb.String(), "failed to start") {
 		t.Fatalf("captured output missing 'failed to start': %q", sb.String())
 	}
+}
+
+func TestSchedulerRecordsRunDespiteCancel(t *testing.T) {
+	// A long-running job is started, then the daemon ctx is cancelled
+	// (simulating SIGTERM). The runner returns once the child is
+	// killed, and the recording phase MUST still produce a runs row
+	// — otherwise the audit trail loses every in-flight job at
+	// shutdown. The write goes through writeCtx (context.WithoutCancel
+	// + timeout) so it survives the parent cancellation.
+	st := newStore(t)
+	now := time.Now()
+	gate := make(chan struct{})
+	rr := &recRunner{wait: gate}
+
+	job, err := st.AddJob(t.Context(), eon.JobSpec{
+		Name: "long", Command: []string{"true"}, Cron: "@every 1s",
+	}, now)
+	if err != nil {
+		t.Fatalf("AddJob: %v", err)
+	}
+
+	s := New(st, Config{
+		MaxConcurrent: 4,
+		Runner:        rr,
+		RecordTimeout: 2 * time.Second,
+	})
+
+	ctx, cancel := context.WithCancelCause(t.Context())
+	defer cancel(nil)
+	done := make(chan struct{})
+	go func() { defer close(done); _ = s.Start(ctx) }()
+
+	if !waitFor(2*time.Second, func() bool { return rr.calls.Load() >= 1 }) {
+		t.Fatal("runner never fired")
+	}
+
+	cancel(errTestCtxEnded)
+	close(gate)
+	<-done
+
+	runs, err := st.ListRuns(t.Context(), job.ID, 0)
+	if err != nil {
+		t.Fatalf("ListRuns: %v", err)
+	}
+	if len(runs) == 0 {
+		t.Fatal("no runs row recorded; cancellation lost the audit trail")
+	}
+}
+
+func TestSchedulerGCRunsPeriodically(t *testing.T) {
+	st := newStore(t)
+	now := time.Now()
+
+	// Cron that won't fire during the test window.
+	job, err := st.AddJob(t.Context(), eon.JobSpec{
+		Name: "c", Command: []string{"true"}, Cron: "0 0 1 1 *",
+	}, now)
+	if err != nil {
+		t.Fatalf("AddJob: %v", err)
+	}
+
+	s := New(st, Config{
+		MaxConcurrent: 1,
+		GCInterval:    100 * time.Millisecond,
+		Runner:        &recRunner{},
+	})
+
+	ctx, cancel := context.WithCancelCause(t.Context())
+	defer cancel(nil)
+	done := make(chan struct{})
+	go func() { defer close(done); _ = s.Start(ctx) }()
+
+	// Wait for the startup GC pass to settle so the post-startup
+	// insert below exercises only the ticker, not the startup pass.
+	time.Sleep(200 * time.Millisecond)
+
+	ancient := now.Add(-2 * store.RetentionMaxAge)
+	if _, err := st.RecordRun(t.Context(), job.ID, ancient, ancient.Add(time.Second), 0, eon.RunOK, nil); err != nil {
+		t.Fatalf("RecordRun: %v", err)
+	}
+
+	ok := waitFor(2*time.Second, func() bool {
+		runs, err := st.ListRuns(t.Context(), job.ID, 0)
+		return err == nil && len(runs) == 0
+	})
+	if !ok {
+		t.Fatal("periodic GC did not remove stale run within deadline")
+	}
+
+	cancel(errTestCtxEnded)
+	<-done
 }
 
 func waitFor(d time.Duration, pred func() bool) bool {

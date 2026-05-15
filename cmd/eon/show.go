@@ -15,7 +15,7 @@ for programmatic use.`,
   eon show backup --json | jq .cron`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			s, cleanup, err := openService()
+			s, cleanup, err := openService(cmd.Context())
 			if err != nil {
 				return err
 			}

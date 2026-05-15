@@ -11,7 +11,7 @@ import (
 
 func newStore(t *testing.T) *Store {
 	t.Helper()
-	r, err := Open(t.TempDir())
+	r, err := Open(t.Context(), t.TempDir())
 	if err != nil {
 		t.Fatalf("Open: %v", err)
 	}
@@ -214,7 +214,7 @@ func TestStoreGCEnforcesRetention(t *testing.T) {
 		}
 	}
 
-	if err := r.GC(ctx, now, perJob, RetentionMaxAge); err != nil {
+	if err := r.GC(ctx, now, perJob, RetentionMaxAge, 0); err != nil {
 		t.Fatalf("GC: %v", err)
 	}
 	runs, err := r.ListRuns(ctx, job.ID, 0)
@@ -223,6 +223,63 @@ func TestStoreGCEnforcesRetention(t *testing.T) {
 	}
 	if len(runs) != 3 {
 		t.Fatalf("after GC: %d runs, want 3", len(runs))
+	}
+}
+
+func TestStoreGCEnforcesGlobalCap(t *testing.T) {
+	r := newStore(t)
+	ctx := t.Context()
+	now := mustTime(t, "2026-05-13T10:00:00Z")
+
+	// Two jobs, three runs each, spaced so global ordering by
+	// started_at is unambiguous. With perJob=10 and maxAge huge,
+	// only the global cap should trim. Cap of 4 → drop the 2 oldest.
+	jobA, err := r.AddJob(ctx, eon.JobSpec{Name: "a", Command: []string{"x"}, Cron: "@hourly"}, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	jobB, err := r.AddJob(ctx, eon.JobSpec{Name: "b", Command: []string{"x"}, Cron: "@hourly"}, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	type rec struct {
+		job eon.JobID
+		t   time.Time
+	}
+	recs := []rec{
+		{jobA.ID, now.Add(-6 * time.Minute)},
+		{jobB.ID, now.Add(-5 * time.Minute)},
+		{jobA.ID, now.Add(-4 * time.Minute)},
+		{jobB.ID, now.Add(-3 * time.Minute)},
+		{jobA.ID, now.Add(-2 * time.Minute)},
+		{jobB.ID, now.Add(-1 * time.Minute)},
+	}
+	for _, e := range recs {
+		if _, err := r.RecordRun(ctx, e.job, e.t, e.t.Add(time.Second), 0, eon.RunOK, nil); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	if err := r.GC(ctx, now, 10, RetentionMaxAge, 4); err != nil {
+		t.Fatalf("GC: %v", err)
+	}
+
+	runsA, _ := r.ListRuns(ctx, jobA.ID, 0)
+	runsB, _ := r.ListRuns(ctx, jobB.ID, 0)
+	total := len(runsA) + len(runsB)
+	if total != 4 {
+		t.Fatalf("after GC: %d runs total, want 4", total)
+	}
+	// The two oldest were a@-6m and b@-5m; both should be gone.
+	for _, r := range runsA {
+		if !r.StartedAt.After(now.Add(-5 * time.Minute)) {
+			t.Errorf("jobA run at %v survived global cap", r.StartedAt)
+		}
+	}
+	for _, r := range runsB {
+		if !r.StartedAt.After(now.Add(-5 * time.Minute)) {
+			t.Errorf("jobB run at %v survived global cap", r.StartedAt)
+		}
 	}
 }
 

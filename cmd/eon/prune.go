@@ -34,7 +34,7 @@ set (dry-run) or the deleted IDs (--force) are emitted as JSON.`,
   eon prune --json | jq '.[].id'  # scripted candidate list`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			s, cleanup, err := openService()
+			s, cleanup, err := openService(cmd.Context())
 			if err != nil {
 				return err
 			}

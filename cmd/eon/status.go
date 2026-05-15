@@ -13,7 +13,7 @@ aggregate counts of jobs by kind and one-shot completion state.`,
 		Example: "  eon status\n  eon status --json",
 		Args:    cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			s, cleanup, err := openService()
+			s, cleanup, err := openService(cmd.Context())
 			if err != nil {
 				return err
 			}

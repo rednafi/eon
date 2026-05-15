@@ -63,7 +63,7 @@ Header format: '==> run #ID status exit=N finished=TIME'.`,
 			if since < 0 {
 				return usageErrf("--since must be non-negative")
 			}
-			s, cleanup, err := openService()
+			s, cleanup, err := openService(cmd.Context())
 			if err != nil {
 				return err
 			}

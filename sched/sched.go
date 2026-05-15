@@ -11,6 +11,7 @@ package sched
 
 import (
 	"context"
+	"errors"
 	"log/slog"
 	"sync"
 	"time"
@@ -19,6 +20,11 @@ import (
 	"github.com/rednafi/eon/store"
 	"golang.org/x/sync/semaphore"
 )
+
+// errRecordTimedOut is the cause attached to writeCtx when the
+// per-run recording phase exceeds [Config.RecordTimeout]; surfaces
+// via context.Cause(writeCtx) in warn-level logs.
+var errRecordTimedOut = errors.New("scheduler: record-run timeout")
 
 // Config customises a [Scheduler]. Zero values are filled in by [New].
 type Config struct {
@@ -33,6 +39,24 @@ type Config struct {
 	// a defensive ceiling guards against the (impossible-on-paper)
 	// case of a missed signal on a long-idle daemon. Default: 1 hour.
 	MaxSleep time.Duration
+
+	// GCInterval is the cadence at which the scheduler re-runs
+	// [store.Store.GC] to trim run history (RetentionPerJob and
+	// RetentionMaxAge). Default: 1 hour. The first pass runs at
+	// startup; the ticker drives every subsequent pass.
+	GCInterval time.Duration
+
+	// JobGracePeriod is how long a child process is given to exit
+	// after receiving SIGTERM on cancellation, before os/exec
+	// escalates to SIGKILL. Default: 5 seconds.
+	JobGracePeriod time.Duration
+
+	// RecordTimeout bounds the per-run DB-write phase (RecordRun,
+	// MarkJobRan, SetJobStatus). The write runs under a context
+	// detached from the parent so a shutdown-killed run still gets
+	// persisted; this bound prevents a stuck SQLite connection from
+	// blocking worker drain forever. Default: 5 seconds.
+	RecordTimeout time.Duration
 
 	// Now provides the current time. Override for deterministic tests.
 	Now func() time.Time
@@ -68,11 +92,20 @@ func New(st *store.Store, cfg Config) *Scheduler {
 	if cfg.MaxSleep <= 0 {
 		cfg.MaxSleep = time.Hour
 	}
+	if cfg.GCInterval <= 0 {
+		cfg.GCInterval = time.Hour
+	}
+	if cfg.JobGracePeriod <= 0 {
+		cfg.JobGracePeriod = 5 * time.Second
+	}
+	if cfg.RecordTimeout <= 0 {
+		cfg.RecordTimeout = 5 * time.Second
+	}
 	if cfg.Now == nil {
 		cfg.Now = time.Now
 	}
 	if cfg.Runner == nil {
-		cfg.Runner = ExecRunner{}
+		cfg.Runner = ExecRunner{GracePeriod: cfg.JobGracePeriod}
 	}
 	if cfg.Logger == nil {
 		cfg.Logger = slog.Default()
@@ -100,15 +133,15 @@ func (s *Scheduler) Wake() {
 
 // Start runs the scheduler loop until ctx is cancelled. Blocks;
 // callers typically invoke it in its own goroutine. The deferred
-// wg.Wait() drains in-flight runners before Start returns ctx.Err().
+// wg.Wait() drains in-flight runners and the GC goroutine before
+// Start returns ctx.Err().
 //
-// Runs one GC pass at startup to enforce retention. The daemon is
-// long-running, so a single startup pass plus the assumption that
-// daemons get restarted on upgrades/reboots keeps growth bounded
-// without a separate scheduler.
+// A retention GC pass runs at startup and then on every
+// [Config.GCInterval] tick, so long-lived daemons don't grow
+// run history unbounded.
 func (s *Scheduler) Start(ctx context.Context) error {
-	s.warn("gc", s.store.GC(ctx, s.cfg.Now(), store.RetentionPerJob, store.RetentionMaxAge))
 	defer s.wg.Wait()
+	s.wg.Go(func() { s.gcLoop(ctx) })
 
 	for {
 		if err := ctx.Err(); err != nil {
@@ -196,11 +229,34 @@ func (s *Scheduler) runJob(ctx context.Context, job eon.Job) {
 	}
 	finishedAt := s.cfg.Now()
 
-	_, recErr := s.store.RecordRun(ctx, job.ID, startedAt, finishedAt, exitCode, status, buf.Bytes())
+	// Detach the recording phase from the parent so a SIGTERM-driven
+	// shutdown still produces an audit row for the killed run; bound
+	// it so a stuck SQLite write cannot block worker drain.
+	writeCtx, cancel := context.WithTimeoutCause(
+		context.WithoutCancel(ctx), s.cfg.RecordTimeout, errRecordTimedOut)
+	defer cancel()
+
+	_, recErr := s.store.RecordRun(writeCtx, job.ID, startedAt, finishedAt, exitCode, status, buf.Bytes())
 	s.warnJob("record run", job.ID, recErr)
-	s.warnJob("mark ran", job.ID, s.store.MarkJobRan(ctx, job.ID, status, finishedAt))
+	s.warnJob("mark ran", job.ID, s.store.MarkJobRan(writeCtx, job.ID, status, finishedAt))
 	if job.Kind == eon.KindOneshot {
-		s.warnJob("mark oneshot done", job.ID, s.store.SetJobStatus(ctx, job.ID, eon.StatusDone, finishedAt))
+		s.warnJob("mark oneshot done", job.ID, s.store.SetJobStatus(writeCtx, job.ID, eon.StatusDone, finishedAt))
+	}
+}
+
+func (s *Scheduler) gcLoop(ctx context.Context) {
+	gc := func() {
+		s.warn("gc", s.store.GC(ctx, s.cfg.Now(), store.RetentionPerJob, store.RetentionMaxAge, store.RetentionMaxTotal))
+	}
+	gc()
+	tick := time.Tick(s.cfg.GCInterval)
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-tick:
+			gc()
+		}
 	}
 }
 

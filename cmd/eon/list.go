@@ -33,7 +33,7 @@ suitable for jq/awk pipelines; truncation is reported on stderr.`,
   eon ls --limit 20 --offset 40`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			s, cleanup, err := openService()
+			s, cleanup, err := openService(cmd.Context())
 			if err != nil {
 				return err
 			}
@@ -79,7 +79,7 @@ suitable for jq/awk pipelines; truncation is reported on stderr.`,
 			}
 			if hasMore && !globalFlags.quiet {
 				fmt.Fprintf(stderr,
-					"showing %d jobs; more available — pass --all or use --limit/--offset to page.\n",
+					"showing %d jobs; more available. Pass --all or use --limit/--offset to page.\n",
 					len(jobs))
 			}
 			return nil

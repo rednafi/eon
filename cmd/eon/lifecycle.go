@@ -17,7 +17,7 @@ func newRemoveCmd() *cobra.Command {
 		Example: "  eon rm 7K3px\n  eon rm backup\n",
 		Args:    cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			s, cleanup, err := openService()
+			s, cleanup, err := openService(cmd.Context())
 			if err != nil {
 				return err
 			}
@@ -44,7 +44,7 @@ func newEnableCmd() *cobra.Command {
 		Example: "  eon enable backup\n  eon enable 7K3px",
 		Args:    cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			s, cleanup, err := openService()
+			s, cleanup, err := openService(cmd.Context())
 			if err != nil {
 				return err
 			}
@@ -71,7 +71,7 @@ func newDisableCmd() *cobra.Command {
 		Example: "  eon disable backup\n  eon disable 7K3px",
 		Args:    cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			s, cleanup, err := openService()
+			s, cleanup, err := openService(cmd.Context())
 			if err != nil {
 				return err
 			}
