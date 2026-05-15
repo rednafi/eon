@@ -16,21 +16,36 @@ import (
 	"github.com/charmbracelet/fang"
 )
 
-// version is overridden at build time via -ldflags '-X main.version=...'.
-var version = "0.1.0"
+// version and commit are overridden at release build time via -ldflags.
+// When version is empty, Fang falls back to Go build-info metadata, which
+// keeps `go install ...@version` builds self-describing.
+var (
+	version string
+	commit  string
+)
 
 func main() {
 	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer cancel()
 
 	root := newRoot()
-	root.Version = version
 
 	// AnsiColorScheme leaves the actual hues up to the user's terminal
 	// palette, so help/error text stays legible on both dark and light
 	// backgrounds — the default scheme uses fixed lipgloss colors that
 	// look dim on dark mode.
-	if err := fang.Execute(ctx, root, fang.WithColorSchemeFunc(fang.AnsiColorScheme)); err != nil {
+	if err := fang.Execute(ctx, root, fangOptions()...); err != nil {
 		os.Exit(exitCode(err))
 	}
+}
+
+func fangOptions() []fang.Option {
+	opts := []fang.Option{fang.WithColorSchemeFunc(fang.AnsiColorScheme)}
+	if version != "" {
+		opts = append(opts, fang.WithVersion(version))
+	}
+	if commit != "" {
+		opts = append(opts, fang.WithCommit(commit))
+	}
+	return opts
 }
