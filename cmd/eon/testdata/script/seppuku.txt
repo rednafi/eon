@@ -7,6 +7,7 @@
 exec eon seppuku
 stdout 'would remove binary'
 stdout 'dry run; nothing was modified'
+stdout 'Re-run with --yes to actually perform'
 
 # Add a job so the data dir exists, then dry-run again.
 exec eon add --cron '@hourly' --name j1 -- echo hi

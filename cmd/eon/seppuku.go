@@ -86,6 +86,7 @@ func seppuku(cmd *cobra.Command, perform bool) error {
 		fmt.Fprintln(out, "done")
 	} else {
 		fmt.Fprintln(out, "(dry run; nothing was modified)")
+		fmt.Fprintln(out, "Re-run with --yes to actually perform the operations above.")
 	}
 	return nil
 }
