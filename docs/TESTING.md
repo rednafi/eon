@@ -1,8 +1,7 @@
 # Testing eon
 
-eon hosts production-critical schedules, so the test suite covers every
-command, every flag, every documented exit code, and the multi-process
-daemon interactions.
+The test suite covers every command, every flag, every documented exit
+code, and the multi-process daemon interactions.
 
 ## Layout
 

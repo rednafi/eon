@@ -1,15 +1,30 @@
 # eon
 
-A personal job scheduler. It runs cron-style recurring jobs and one-shot
-jobs at a wall-clock time inside its own daemon, so it behaves the same
-on macOS and Linux without touching the system cron.
+A tiny job scheduler. It does two things:
 
-State is a single SQLite file under the platform's data directory:
+- recurring (cron-style) jobs
+- one-shot jobs at a wall-clock time
 
-- macOS: `~/Library/Application Support/eon/eon.db`
-- Linux: `$XDG_DATA_HOME/eon/eon.db` (falls back to `~/.local/share/eon`)
+Both run inside its own daemon, so behaviour is the same on macOS
+and Linux. The system cron isn't involved.
 
-Captured output for the last 100 runs per job is retained for 100 days.
+State lives in a single SQLite file under the platform's data
+directory. Captured output for the last 100 runs per job is retained
+for 100 days.
+
+## Why
+
+I've been using LLM agents to schedule both one-off and recurring
+jobs. The agents I use keep their job ticker inside their own process
+and there's little visibility into it. For some tasks that's
+adequate, but for others I'd like to see all the scheduled jobs in
+one place.
+
+The system cron works, but it takes some shell-fu to check state and
+tail the output. One-off scheduling is also inconsistent across
+platforms: on macOS, the `at` daemon is usually off by default. So I
+wanted a small, self-documenting CLI that an LLM can drive and that
+behaves the same on macOS and Linux.
 
 ## Quickstart
 
@@ -61,53 +76,17 @@ eon prune                    # purge done one-shots and disabled jobs
 eon uninstall                # remove the supervisor unit
 ```
 
-Exit codes:
-
-| Code | Meaning                                       |
-| ---: | --------------------------------------------- |
-|    0 | success                                       |
-|    1 | unexpected (panic, I/O, generic)              |
-|    2 | usage (bad flag, missing arg)                 |
-|    3 | not found                                     |
-|    4 | conflict (daemon already running)             |
-|    5 | precondition (invalid cron/time/spec)         |
-
 ## Development
 
 Requires Go 1.26 or newer.
 
 ```sh
-make build   # build ./bin/eon
-make test    # race-enabled, every package
-make vet     # go vet
-make lint    # golangci-lint
-make tidy    # go mod tidy
-make clean   # remove ./bin
-```
-
-Run a single package's tests:
-
-```sh
-go test -race -count=1 ./sched/...
-```
-
-Run the testscript-based CLI scenarios:
-
-```sh
-go test -race -run TestScripts ./cmd/eon/
-```
-
-Each `.txtar` file under `cmd/eon/testdata/script/` is one scenario;
-drop a new file there to add coverage.
-
-### Project layout
-
-```
-cmd/eon/   CLI entrypoint and command tree (cobra)
-sched/     Scheduler loop. Fires due jobs from the SQLite schedule.
-store/     SQLite persistence. The schedule lives here, not in memory.
-daemon/    Per-user data dir, plus the flock-based single-instance lock.
-tests/     Native end-to-end coverage per platform.
+make build
+make test
+make vet
+make lint
+make tidy
+make clean   
 ```
 
 ### Releases
