@@ -54,9 +54,9 @@ func truncate(s string, max int) string {
 		return s
 	}
 	if max <= 1 {
-		return "…"
+		return "..."
 	}
-	return string(r[:max-1]) + "…"
+	return string(r[:max-1]) + "..."
 }
 
 func writeJobDetail(w io.Writer, j eon.Job) {

@@ -1,8 +1,11 @@
 package main
 
 import (
+	"errors"
 	"fmt"
+	"io/fs"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -15,7 +18,6 @@ func newAddCmd() *cobra.Command {
 		cronExpr string
 		atExpr   string
 		name     string
-		noEnv    bool
 		jsonOut  bool
 	)
 	cmd := &cobra.Command{
@@ -29,15 +31,23 @@ func newAddCmd() *cobra.Command {
 The command MUST follow '--'. Two forms work and you can use whichever
 fits your shell habits:
 
-  -- "echo hello"        # single quoted string → run via /bin/sh -c
-  -- sh -c "echo hello"  # explicit shell invocation → exec directly
-  -- /bin/echo hello     # multi-word argv      → exec directly
+  -- "echo hello"        # single quoted string -> run via /bin/sh -c
+  -- sh -c "echo hello"  # explicit shell invocation -> exec directly
+  -- /bin/echo hello     # multi-word argv      -> exec directly
 
 In other words: one positional after '--' is treated as a shell line
 (piped to sh -c at fire time), two or more positionals are treated as
 the program plus its arguments (exec'd directly). Either form lands
 you at the same outcome for simple commands; the shell form is what
 you reach for when you want pipes, redirects, or paths with spaces.
+
+Put every eon flag (--cron, --at, --name, --json) BEFORE '--'. Anything
+after '--' belongs to the job and is not parsed by eon.
+
+Absolute-path binaries (e.g. /usr/bin/python3) are checked for existence
+at add time so a typo'd path doesn't silently produce a job that fails
+on every fire. Relative paths and bare names aren't checked because
+they resolve against the daemon's CWD/PATH at fire time.
 
 CRON SYNTAX (--cron)
 
@@ -115,7 +125,7 @@ time is rejected with exit code 5.`,
   eon add --at "2026-12-31T23:59:00-08:00" --name year-end -- ./fireworks`,
 		Args: cobra.MinimumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			s, cleanup, err := openService()
+			s, cleanup, err := openService(cmd.Context())
 			if err != nil {
 				return err
 			}
@@ -127,17 +137,18 @@ time is rejected with exit code 5.`,
 			if cmd.ArgsLenAtDash() < 0 {
 				return usageErrf("place the command after '--' (e.g. `eon add --cron '@hourly' -- /bin/echo hi`)")
 			}
+			if err := checkAbsExecutable(args); err != nil {
+				return err
+			}
 
 			spec := eon.JobSpec{Command: wrapCommand(args), Name: name}
 			if spec.Name == "" {
 				spec.Name = strings.Join(args, " ")
 			}
-			if !noEnv {
-				// Snapshot the user's environment so the daemon's
-				// minimal launchd/systemd PATH doesn't break commands
-				// that "just work" in the shell. Same model as at(1).
-				spec.Env = os.Environ()
-			}
+			// Snapshot the user's environment so the daemon's minimal
+			// launchd/systemd PATH doesn't break commands that "just
+			// work" in the shell. Same model as at(1).
+			spec.Env = os.Environ()
 			if cronExpr != "" {
 				spec.Cron = cronExpr
 			} else {
@@ -165,7 +176,6 @@ time is rejected with exit code 5.`,
 	cmd.Flags().StringVar(&cronExpr, "cron", "", "cron expression (mutually exclusive with --at)")
 	cmd.Flags().StringVar(&atExpr, "at", "", "fire time for a one-shot job; wall-clock (mutually exclusive with --cron)")
 	cmd.Flags().StringVar(&name, "name", "", "human label (defaults to the command)")
-	cmd.Flags().BoolVar(&noEnv, "no-env", false, "do not snapshot the user's environment; use the daemon's minimal env")
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "emit the created job as JSON on stdout")
 	return cmd
 }
@@ -178,4 +188,55 @@ func wrapCommand(args []string) []string {
 		return []string{"/bin/sh", "-c", args[0]}
 	}
 	return args
+}
+
+// checkAbsExecutable rejects an add whose command is an absolute path
+// that doesn't exist or isn't executable. Relative paths and bare names
+// are deliberately not checked: they resolve against the daemon's CWD
+// and snapshotted PATH at fire time, neither of which the CLI can
+// observe reliably.
+func checkAbsExecutable(args []string) error {
+	bin := absExecutableTarget(args)
+	if bin == "" {
+		return nil
+	}
+	info, err := os.Stat(bin)
+	if errors.Is(err, fs.ErrNotExist) {
+		return usageErrf("command not found: %s (use a path that exists, or a bare name resolvable on PATH)", bin)
+	}
+	if err != nil {
+		return usageErrf("command %s: %v", bin, err)
+	}
+	if info.IsDir() {
+		return usageErrf("command %s is a directory, not an executable", bin)
+	}
+	if info.Mode()&0o111 == 0 {
+		return usageErrf("command %s is not executable (chmod +x?)", bin)
+	}
+	return nil
+}
+
+// absExecutableTarget returns the absolute path that will be exec'd,
+// or "" if the command can't be validated from the CLI side. The
+// shell-form (one positional) is opaque once it contains any shell
+// metacharacter, so only a bare absolute path qualifies.
+func absExecutableTarget(args []string) string {
+	switch {
+	case len(args) == 0:
+		return ""
+	case len(args) >= 2:
+		if filepath.IsAbs(args[0]) {
+			return args[0]
+		}
+		return ""
+	default:
+		s := args[0]
+		if !filepath.IsAbs(s) {
+			return ""
+		}
+		if strings.ContainsAny(s, " \t\n|&;<>()$`\\\"'*?[]{}~#=!") {
+			return ""
+		}
+		return s
+	}
 }

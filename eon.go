@@ -47,11 +47,11 @@ type Job struct {
 	Name    string   `json:"name"`
 	Command []string `json:"command"` // argv; [0] is the program
 	// Env is the snapshot of the user's environment captured at
-	// `eon add` time. Empty means "inherit the daemon's env", which
-	// under launchd/systemd is the supervisor's minimal PATH. Storing
-	// this with the job is how eon avoids the cron/launchd PATH
-	// footgun without forcing absolute paths.
-	Env        []string  `json:"env,omitempty"`
+	// `eon add` time. Always populated for new jobs (the at(1)-style
+	// PATH workaround). Suppressed from JSON because shell envs
+	// routinely contain tokens and would otherwise leak through
+	// `eon ls --json` / `eon show --json`.
+	Env        []string  `json:"-"`
 	Cron       string    `json:"cron,omitempty"`   // non-empty when Kind == KindCron
 	FireAt     time.Time `json:"fire_at,omitzero"` // non-zero when Kind == KindOneshot
 	Status     JobStatus `json:"status"`

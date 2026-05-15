@@ -16,7 +16,15 @@ func newDebugCmd() *cobra.Command {
 		Long: `Subcommands for poking at eon's internals. Not part of the stable
 user-facing API; tools and messages here can change without notice.`,
 		Example: "  eon debug db                # open a sqlite shell against eon's database",
-		Args:    cobra.NoArgs,
+		// Without an explicit RunE, Cobra silently prints parent help and
+		// exits 0 for unknown subcommands like `eon debug bogus`. We want
+		// that to surface as a usage error (exit 2) instead.
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if len(args) == 0 {
+				return cmd.Help()
+			}
+			return usageErrf("unknown subcommand %q for %q", args[0], cmd.CommandPath())
+		},
 	}
 	cmd.AddCommand(newDebugDBCmd())
 	return cmd

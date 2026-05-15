@@ -39,7 +39,14 @@ Captured output for the last 100 runs per job is retained for 100 days.
 Run 'eon install' once to register the daemon as a launchd LaunchAgent
 or systemd --user unit. After that, the supervisor keeps the daemon
 running across logins and crashes; 'eon stop' asks it to exit and the
-supervisor will respawn it the next time it's needed.`,
+supervisor will respawn it the next time it's needed.
+
+Exit codes: 0=ok 1=err 2=usage 3=not-found 4=conflict 5=precondition.
+Output: pass --json to ls, show, status, logs, prune, or add for stable,
+machine-readable output on stdout. Errors and warnings go to stderr.`,
+		Example: `  eon install
+  eon add --cron '@hourly' --name backup -- ./bk.sh
+  eon ls --json`,
 		SilenceUsage:  true,
 		SilenceErrors: true,
 	}
@@ -103,14 +110,15 @@ func dataDir() (string, error) {
 	return daemon.DataDir()
 }
 
-// openService opens the store and wraps it in a service. The
-// returned cleanup closes the store; commands should defer it.
-func openService() (*service, func(), error) {
+// openService opens the store and wraps it in a service. ctx scopes
+// the store open (schema apply, migrations); the returned cleanup
+// closes the store and commands should defer it.
+func openService(ctx context.Context) (*service, func(), error) {
 	dir, err := dataDir()
 	if err != nil {
 		return nil, func() {}, err
 	}
-	st, err := store.Open(dir)
+	st, err := store.Open(ctx, dir)
 	if err != nil {
 		return nil, func() {}, err
 	}

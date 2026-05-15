@@ -34,7 +34,25 @@ stdout '"sh"'
 stdout '"-c"'
 stdout '"echo new"'
 
-# Binary that doesn't exist still succeeds at add time; the scheduler
-# captures the start error into the run log when it fires.
-exec eon add --at '+1h' --name nonexistent -- /no/such/binary
+# Absolute-path binary that doesn't exist is rejected at add time, so
+# users find out before the daemon ever fires the job. Catches the
+# common cross-distro slip where someone types /bin/true on macOS (it
+# lives at /usr/bin/true) or similar.
+! exec eon add --at '+1h' --name nonexistent -- /no/such/binary
+stderr 'command not found: /no/such/binary'
+
+# Same rule for the shell-form when the line is a bare absolute path.
+! exec eon add --at '+1h' --name nonexistent2 -- /no/such/binary
+stderr 'command not found'
+
+# But a shell line with metacharacters is opaque to us; we let it
+# through and the failure surfaces in the run log if the user typo'd.
+exec eon add --at '+1h' --name shellopaque -- '/no/such/binary || true'
+stdout 'added job'
+
+# Relative paths and bare names are not validated (PATH/CWD differ
+# between CLI and daemon at fire time).
+exec eon add --at '+1h' --name relpath -- ./nope.sh arg
+stdout 'added job'
+exec eon add --at '+1h' --name barename -- nope-not-on-path
 stdout 'added job'
