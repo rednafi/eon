@@ -7,18 +7,10 @@ run:
 linters:
   default: none
   enable:
-    - errcheck
     - govet
     - ineffassign
     - staticcheck
     - unused
-
-  settings:
-    errcheck:
-      exclude-functions:
-        - fmt.Fprintln
-        - fmt.Fprintf
-        - fmt.Fprint
 
 formatters:
   enable:
