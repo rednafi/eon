@@ -42,10 +42,16 @@ const (
 
 // Job is a stored, addressable schedule entry.
 type Job struct {
-	ID         JobID     `json:"id"`
-	Kind       JobKind   `json:"kind"`
-	Name       string    `json:"name"`
-	Command    []string  `json:"command"`          // argv; [0] is the program
+	ID      JobID    `json:"id"`
+	Kind    JobKind  `json:"kind"`
+	Name    string   `json:"name"`
+	Command []string `json:"command"` // argv; [0] is the program
+	// Env is the snapshot of the user's environment captured at
+	// `eon add` time. Empty means "inherit the daemon's env", which
+	// under launchd/systemd is the supervisor's minimal PATH. Storing
+	// this with the job is how eon avoids the cron/launchd PATH
+	// footgun without forcing absolute paths.
+	Env        []string  `json:"env,omitempty"`
 	Cron       string    `json:"cron,omitempty"`   // non-empty when Kind == KindCron
 	FireAt     time.Time `json:"fire_at,omitzero"` // non-zero when Kind == KindOneshot
 	Status     JobStatus `json:"status"`
@@ -69,6 +75,7 @@ type Job struct {
 type JobSpec struct {
 	Name    string
 	Command []string
+	Env     []string // KEY=VALUE pairs; nil means "inherit daemon env"
 	Cron    string
 	FireAt  time.Time
 }

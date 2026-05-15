@@ -5,6 +5,8 @@ import (
 	"context"
 	"errors"
 	"io"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -248,6 +250,35 @@ func TestSchedulerOneshotMarksDone(t *testing.T) {
 		return err == nil && got.Status == eon.StatusDone
 	}) {
 		t.Fatalf("oneshot not marked done")
+	}
+}
+
+func TestExecRunnerResolvesBinaryViaSnapshotPATH(t *testing.T) {
+	// Pins the launchd/cron PATH fix: when a job carries a snapshotted
+	// PATH that points somewhere the daemon's own PATH doesn't, the
+	// runner must resolve the binary against the snapshot, not the
+	// daemon's. Construct a temp dir with one fake "echo" symlinked
+	// from /bin/echo, set PATH=<tempdir>, and erase the process's
+	// own PATH for the duration of the test.
+	dir := t.TempDir()
+	if err := os.Symlink("/bin/echo", filepath.Join(dir, "myecho")); err != nil {
+		t.Fatalf("symlink: %v", err)
+	}
+	t.Setenv("PATH", "/usr/bin:/bin") // a "daemon-like" PATH that lacks dir
+
+	var sb strBuf
+	code, err := ExecRunner{}.Run(t.Context(), eon.Job{
+		Command: []string{"myecho", "from snapshot"},
+		Env:     []string{"PATH=" + dir},
+	}, &sb)
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if code != 0 {
+		t.Fatalf("exit code = %d, want 0; stdout=%q", code, sb.String())
+	}
+	if got := sb.String(); got != "from snapshot\n" {
+		t.Fatalf("stdout = %q, want %q", got, "from snapshot\n")
 	}
 }
 

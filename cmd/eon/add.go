@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"os"
 	"strings"
 	"time"
 
@@ -14,6 +15,7 @@ func newAddCmd() *cobra.Command {
 		cronExpr string
 		atExpr   string
 		name     string
+		noEnv    bool
 		jsonOut  bool
 	)
 	cmd := &cobra.Command{
@@ -130,6 +132,12 @@ time is rejected with exit code 5.`,
 			if spec.Name == "" {
 				spec.Name = strings.Join(args, " ")
 			}
+			if !noEnv {
+				// Snapshot the user's environment so the daemon's
+				// minimal launchd/systemd PATH doesn't break commands
+				// that "just work" in the shell. Same model as at(1).
+				spec.Env = os.Environ()
+			}
 			if cronExpr != "" {
 				spec.Cron = cronExpr
 			} else {
@@ -157,6 +165,7 @@ time is rejected with exit code 5.`,
 	cmd.Flags().StringVar(&cronExpr, "cron", "", "cron expression (mutually exclusive with --at)")
 	cmd.Flags().StringVar(&atExpr, "at", "", "fire time for a one-shot job; wall-clock (mutually exclusive with --cron)")
 	cmd.Flags().StringVar(&name, "name", "", "human label (defaults to the command)")
+	cmd.Flags().BoolVar(&noEnv, "no-env", false, "do not snapshot the user's environment; use the daemon's minimal env")
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "emit the created job as JSON on stdout")
 	return cmd
 }

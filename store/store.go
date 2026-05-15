@@ -25,6 +25,7 @@ CREATE TABLE IF NOT EXISTS jobs (
     kind          TEXT    NOT NULL CHECK(kind IN ('cron','oneshot')),
     name          TEXT    NOT NULL,
     command_json  TEXT    NOT NULL,
+    env_json      TEXT    NOT NULL DEFAULT '[]',
     cron_expr     TEXT    NOT NULL DEFAULT '',
     fire_at       INTEGER NOT NULL DEFAULT 0,
     status        TEXT    NOT NULL CHECK(status IN ('enabled','disabled','done')),
@@ -52,7 +53,7 @@ CREATE INDEX IF NOT EXISTS runs_job_started ON runs(job_id, started_at DESC);
 // jobCols is the canonical job-row column list ordering. Every
 // SELECT that goes through [scanJob] must use this list in this
 // order, or the scan will silently misalign fields.
-const jobCols = `id, kind, name, command_json, cron_expr, fire_at,
+const jobCols = `id, kind, name, command_json, env_json, cron_expr, fire_at,
 	status, last_run_at, last_status, next_fire_at, created_at, updated_at`
 
 // runCols is the canonical run-row column list ordering for
@@ -130,16 +131,47 @@ func Open(dataDir string) (*Store, error) {
 	return &Store{db: db, dataDir: dataDir, dbPath: dbPath}, nil
 }
 
-// applySchema applies the schema DDL. CREATE TABLE / CREATE INDEX
-// are IF NOT EXISTS so this is idempotent on an existing database
-// with the matching shape. If a pre-existing database has a
-// different schema, queries against it will fail loudly — recover
-// with `eon seppuku --yes` followed by `eon install`.
+// applySchema applies the schema DDL and runs additive migrations
+// against any pre-existing database. CREATE TABLE / CREATE INDEX are
+// IF NOT EXISTS so the base DDL is idempotent. Column additions are
+// done as ALTER TABLE … ADD COLUMN with IF NOT EXISTS via a
+// pragma_table_info check, so older databases pick up new columns on
+// startup without forcing the user to seppuku.
 func applySchema(ctx context.Context, db *sql.DB) error {
 	if _, err := db.ExecContext(ctx, schema); err != nil {
 		return fmt.Errorf("apply schema: %w", err)
 	}
+	for _, m := range migrations {
+		has, err := columnExists(ctx, db, m.table, m.column)
+		if err != nil {
+			return fmt.Errorf("check column %s.%s: %w", m.table, m.column, err)
+		}
+		if has {
+			continue
+		}
+		if _, err := db.ExecContext(ctx, m.alter); err != nil {
+			return fmt.Errorf("add column %s.%s: %w", m.table, m.column, err)
+		}
+	}
 	return nil
+}
+
+// migrations is the additive set of columns added after the initial
+// schema was shipped. Each entry is keyed by (table, column) so the
+// check is idempotent against any database state.
+var migrations = []struct {
+	table, column, alter string
+}{
+	{"jobs", "env_json", `ALTER TABLE jobs ADD COLUMN env_json TEXT NOT NULL DEFAULT '[]'`},
+}
+
+func columnExists(ctx context.Context, db *sql.DB, table, column string) (bool, error) {
+	rows, err := db.QueryContext(ctx, `SELECT 1 FROM pragma_table_info(?) WHERE name = ?`, table, column)
+	if err != nil {
+		return false, err
+	}
+	defer rows.Close()
+	return rows.Next(), rows.Err()
 }
 
 func (s *Store) DataDir() string { return s.dataDir }
@@ -150,6 +182,13 @@ func (s *Store) AddJob(ctx context.Context, spec eon.JobSpec, now time.Time) (eo
 	cmdJSON, err := json.Marshal(spec.Command)
 	if err != nil {
 		return eon.Job{}, fmt.Errorf("marshal command: %w", err)
+	}
+	envJSON, err := json.Marshal(spec.Env)
+	if err != nil {
+		return eon.Job{}, fmt.Errorf("marshal env: %w", err)
+	}
+	if spec.Env == nil {
+		envJSON = []byte("[]")
 	}
 	kind := eon.KindOneshot
 	fireAt := int64(0)
@@ -172,12 +211,12 @@ func (s *Store) AddJob(ctx context.Context, spec eon.JobSpec, now time.Time) (eo
 	// rare) PK collision against an existing row. After 8 misses the
 	// table is effectively full and we surface a real error.
 	const q = `INSERT INTO jobs
-		(id, kind, name, command_json, cron_expr, fire_at, status,
+		(id, kind, name, command_json, env_json, cron_expr, fire_at, status,
 		 next_fire_at, created_at, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?, 'enabled', ?, ?, ?)`
+		VALUES (?, ?, ?, ?, ?, ?, ?, 'enabled', ?, ?, ?)`
 	for range 8 {
 		id := newJobID()
-		_, err := s.db.ExecContext(ctx, q, string(id), kind, spec.Name, cmdJSON, spec.Cron, fireAt,
+		_, err := s.db.ExecContext(ctx, q, string(id), kind, spec.Name, cmdJSON, envJSON, spec.Cron, fireAt,
 			nextFire, now.UnixNano(), now.UnixNano())
 		if err == nil {
 			return s.Job(ctx, id)
@@ -555,6 +594,7 @@ func scanJob(s scanner) (eon.Job, error) {
 		j            eon.Job
 		kind         string
 		cmdJSON      string
+		envJSON      string
 		status       string
 		fireAtNano   int64
 		lastRunNano  int64
@@ -563,7 +603,7 @@ func scanJob(s scanner) (eon.Job, error) {
 		createdNano  int64
 		updatedNano  int64
 	)
-	err := s.Scan(&j.ID, &kind, &j.Name, &cmdJSON, &j.Cron, &fireAtNano,
+	err := s.Scan(&j.ID, &kind, &j.Name, &cmdJSON, &envJSON, &j.Cron, &fireAtNano,
 		&status, &lastRunNano, &lastStatus, &nextFireNano, &createdNano, &updatedNano)
 	if err != nil {
 		return eon.Job{}, err
@@ -584,6 +624,9 @@ func scanJob(s scanner) (eon.Job, error) {
 	j.UpdatedAt = time.Unix(0, updatedNano).UTC()
 	if err := json.Unmarshal([]byte(cmdJSON), &j.Command); err != nil {
 		return eon.Job{}, fmt.Errorf("decode command: %w", err)
+	}
+	if err := json.Unmarshal([]byte(envJSON), &j.Env); err != nil {
+		return eon.Job{}, fmt.Errorf("decode env: %w", err)
 	}
 	return j, nil
 }
