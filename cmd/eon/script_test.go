@@ -33,7 +33,7 @@ func runEonMain() int {
 	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer cancel()
 	root := newRoot()
-	if err := fang.Execute(ctx, root, fang.WithColorSchemeFunc(fang.AnsiColorScheme)); err != nil {
+	if err := fang.Execute(ctx, root, fangOptions()...); err != nil {
 		return exitCode(err)
 	}
 	return 0

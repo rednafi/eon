@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/charmbracelet/fang"
 	"github.com/rednafi/eon"
 	"github.com/spf13/cobra"
 )
@@ -84,6 +85,29 @@ func TestCLIAddListShowRm(t *testing.T) {
 	}
 	if !strings.Contains(out, "deleted job "+string(id)) {
 		t.Fatalf("rm stdout = %q", out)
+	}
+}
+
+func TestInjectedVersionWinsOverFangBuildInfo(t *testing.T) {
+	prevVersion, prevCommit := version, commit
+	version = "1.2.3"
+	commit = ""
+	t.Cleanup(func() {
+		version = prevVersion
+		commit = prevCommit
+	})
+
+	root := newRoot()
+	var outBuf, errBuf bytes.Buffer
+	root.SetOut(&outBuf)
+	root.SetErr(&errBuf)
+	root.SetArgs([]string{"--version"})
+
+	if err := fang.Execute(t.Context(), root, fangOptions()...); err != nil {
+		t.Fatalf("version: %v\nstderr: %s", err, errBuf.String())
+	}
+	if got := outBuf.String(); !strings.Contains(got, "eon version 1.2.3") {
+		t.Fatalf("--version output = %q", got)
 	}
 }
 
