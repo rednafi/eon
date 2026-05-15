@@ -28,11 +28,31 @@ behaves the same on macOS and Linux.
 
 ## Quickstart
 
-Install with Go:
+### Install
+
+macOS (Homebrew):
+
+```sh
+brew tap rednafi/eon https://github.com/rednafi/eon
+brew install eon
+```
+
+Linux (curl):
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/rednafi/eon/main/install.sh | sh
+```
+
+The script detects amd64/arm64, verifies the SHA-256 sum, and installs to
+`/usr/local/bin/eon`. Override with `EON_PREFIX` or `EON_VERSION`.
+
+From source:
 
 ```sh
 go install github.com/rednafi/eon/cmd/eon@latest
 ```
+
+### Run
 
 Register the daemon with launchd (macOS) or systemd --user (Linux) so it
 restarts across logins and crashes:

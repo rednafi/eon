@@ -18,14 +18,19 @@ builds:
       - -s -w -X main.version={{ .Version }} -X main.commit={{ .Commit }} -X main.date={{ .Date }}
     goos: [linux, darwin]
     goarch: [amd64, arm64]
+    ignore:
+      # macOS Intel users can install via `go install`; we don't ship a
+      # darwin-amd64 binary.
+      - goos: darwin
+        goarch: amd64
 
 archives:
   - id: default
     formats: [tar.gz]
-    name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+    name_template: "{{ .ProjectName }}-v{{ .Version }}-{{ .Os }}-{{ .Arch }}"
 
 checksum:
-  name_template: "checksums.txt"
+  name_template: "sha256sums.txt"
 
 snapshot:
   version_template: "{{ incpatch .Version }}-next"
@@ -56,5 +61,27 @@ changelog:
       - '^ci:'
 
 release:
-  draft: true
+  draft: false
   prerelease: auto
+  mode: replace
+
+# Auto-update Formula/eon.rb in this same repo after each release.
+# Requires `contents: write` on GITHUB_TOKEN; the release workflow
+# already grants it.
+brews:
+  - repository:
+      owner: rednafi
+      name: eon
+      branch: main
+    directory: Formula
+    homepage: https://github.com/rednafi/eon
+    description: Cron and one-shot job scheduler that runs in-process
+    license: MIT
+    commit_author:
+      name: rednafi
+      email: redowan.delowar@wolt.com
+    commit_msg_template: "chore(brew): bump formula to {{ .Tag }}"
+    install: |
+      bin.install "eon"
+    test: |
+      assert_match "eon", shell_output("#{bin}/eon --help")
