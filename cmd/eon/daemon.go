@@ -70,7 +70,8 @@ re-evaluation after a CLI mutation. Exits cleanly on SIGTERM/SIGINT.`,
 					select {
 					case <-cmd.Context().Done():
 						return
-					case <-hup:
+					case sig := <-hup:
+						logger.Info("eond signal received", "signal", sig.String())
 						s.Wake()
 					}
 				}
