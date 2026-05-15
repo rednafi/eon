@@ -2,10 +2,14 @@ package main
 
 import (
 	"context"
+	"errors"
 	"os"
+	"os/exec"
 	"os/signal"
+	"strconv"
 	"syscall"
 	"testing"
+	"time"
 
 	"github.com/charmbracelet/fang"
 	"github.com/rogpeppe/go-internal/testscript"
@@ -17,7 +21,8 @@ import (
 // in-process so we avoid the cost of forking.
 func TestMain(m *testing.M) {
 	testscript.Main(m, map[string]func(){
-		"eon": func() { os.Exit(runEonMain()) },
+		"eon":     func() { os.Exit(runEonMain()) },
+		"timeout": func() { os.Exit(runTimeoutMain()) },
 	})
 }
 
@@ -32,6 +37,42 @@ func runEonMain() int {
 		return exitCode(err)
 	}
 	return 0
+}
+
+func runTimeoutMain() int {
+	if len(os.Args) < 3 {
+		return 2
+	}
+	d, err := parseTimeoutDuration(os.Args[1])
+	if err != nil {
+		return 2
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), d)
+	defer cancel()
+
+	cmd := exec.CommandContext(ctx, os.Args[2], os.Args[3:]...)
+	cmd.Stdin = os.Stdin
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	err = cmd.Run()
+	if ctx.Err() == context.DeadlineExceeded {
+		return 124
+	}
+	if err == nil {
+		return 0
+	}
+	var exitErr *exec.ExitError
+	if errors.As(err, &exitErr) {
+		return exitErr.ExitCode()
+	}
+	return 1
+}
+
+func parseTimeoutDuration(s string) (time.Duration, error) {
+	if n, err := strconv.Atoi(s); err == nil {
+		return time.Duration(n) * time.Second, nil
+	}
+	return time.ParseDuration(s)
 }
 
 func TestScripts(t *testing.T) {
