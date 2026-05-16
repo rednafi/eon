@@ -27,14 +27,14 @@ that behaves the same on macOS and Linux.
 
 ### Install
 
-macOS (Homebrew):
+macOS:
 
 ```sh
 brew tap rednafi/eon https://github.com/rednafi/eon
 brew install eon
 ```
 
-Linux (curl):
+Linux:
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/rednafi/eon/main/install.sh | sh
