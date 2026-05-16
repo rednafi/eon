@@ -2,7 +2,7 @@
 
 A tiny job scheduler.
 
-[![eon usage demo](https://vhs.charm.sh/vhs-26bmu0ZGqnoMVO50BCfEeC.gif)](https://github.com/rednafi/eon/issues/6)
+[![eon usage demo](https://vhs.charm.sh/vhs-5LhfzVGZP3MHSKQlHwU2eR.gif)](https://github.com/rednafi/eon/issues/6)
 
 It does two things:
 
