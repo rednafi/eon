@@ -1,13 +1,6 @@
 package main
 
-// service is the CLI's composition root: wires the SQLite store and
-// the daemon-state probe into the operations the commands need.
-// Every mutation sends SIGHUP to a running daemon (silent no-op if
-// none is running) so the scheduler interrupts its sleep and re-evaluates
-// the schedule immediately.
-
 import (
-	"cmp"
 	"context"
 	"regexp"
 	"syscall"
@@ -18,6 +11,11 @@ import (
 	"github.com/rednafi/eon/store"
 )
 
+// service is the CLI's composition root.
+//
+// It wires the store and daemon-state probe into command operations.
+// Every mutation sends SIGHUP to a running daemon.
+// That wakes the scheduler so it re-evaluates immediately.
 type service struct {
 	st *store.Store
 }
@@ -51,11 +49,14 @@ func (s *service) Get(ctx context.Context, id eon.JobID) (eon.Job, error) {
 // store. Anything else is treated as a name when resolving CLI input.
 var idShape = regexp.MustCompile(`^[0-9A-Za-z]{5}$`)
 
-// Resolve looks up a job by either its ID or its name. ID format wins:
-// a 5-char alphanumeric arg is tried as an ID first, then as a name
-// if that misses. Anything else is treated as a name only. Callers
-// pass user-supplied arg verbatim; the returned Job carries the real
-// ID for any follow-on writes.
+// Resolve looks up a job by ID or name.
+//
+// Lookup order:
+//   - A 5-char alphanumeric arg is tried as an ID first.
+//   - If that misses, it falls back to name lookup.
+//   - Anything else is treated as a name only.
+//
+// The returned Job carries the real ID for follow-on writes.
 func (s *service) Resolve(ctx context.Context, arg string) (eon.Job, error) {
 	if idShape.MatchString(arg) {
 		job, err := s.st.Job(ctx, eon.JobID(arg))
@@ -68,19 +69,22 @@ func (s *service) Resolve(ctx context.Context, arg string) (eon.Job, error) {
 	return s.st.JobByName(ctx, arg)
 }
 
-// List returns jobs matching opts. If opts.Limit is zero, it caps the
-// result at [store.DefaultListLimit]; pass a negative limit to disable
-// the cap. The bool return is true when the underlying query had more
-// rows than the cap — front-ends use it to show a "more available"
-// hint.
+// List returns jobs matching opts.
+//
+// Limit behavior:
+//   - Limit == 0 uses store.DefaultListLimit.
+//   - Limit < 0 disables the cap.
+//
+// The bool result is true when more rows were available.
+// Front-ends use that to show a "more available" hint.
 func (s *service) List(ctx context.Context, opts store.ListOpts) ([]eon.Job, bool, error) {
 	limit := opts.Limit
 	if limit == 0 {
 		limit = store.DefaultListLimit
 	}
+	// Ask for one more row than the cap so we can tell the caller
+	// whether anything got trimmed without running a count query.
 	if limit > 0 {
-		// Ask for one more row than the cap so we can tell the caller
-		// whether anything got trimmed without running a count query.
 		opts.Limit = limit + 1
 	} else {
 		opts.Limit = 0
@@ -104,10 +108,10 @@ func (s *service) Delete(ctx context.Context, id eon.JobID) error {
 	return nil
 }
 
-// Enable re-activates a job. It restores next_fire_at from the
-// current schedule + the latest reference instant (last_run_at, or
-// created_at for a never-run job) so the scheduler schedules it
-// correctly without depending on a runtime cache.
+// Enable re-activates a job.
+//
+// It restores next_fire_at from the current schedule.
+// Disabled intervals are not backfilled.
 func (s *service) Enable(ctx context.Context, id eon.JobID) error {
 	now := time.Now()
 	job, err := s.st.Job(ctx, id)
@@ -118,8 +122,8 @@ func (s *service) Enable(ctx context.Context, id eon.JobID) error {
 		return err
 	}
 	job.Status = eon.StatusEnabled
-	ref := cmp.Or(job.LastRunAt, job.CreatedAt)
-	if err := s.st.AdvanceNextFire(ctx, id, eon.NextFire(job, ref)); err != nil {
+	// Re-enable from now. Disabled intervals are not backfilled.
+	if err := s.st.AdvanceNextFire(ctx, id, eon.NextFire(job, now)); err != nil {
 		return err
 	}
 	s.notify()
@@ -147,9 +151,10 @@ func (s *service) Status(ctx context.Context) (eon.Status, error) {
 	}, nil
 }
 
-// DaemonState probes the flock-based single-instance lock. The lock
-// is held by the daemon for its lifetime; the OS releases it on any
-// kind of exit, so a stale state is impossible.
+// DaemonState probes the single-instance lock.
+//
+// The daemon holds the lock for its lifetime.
+// The OS releases it on exit, so stale state is impossible.
 func (s *service) DaemonState() eon.DaemonStatus {
 	pid, startedAt, running, _ := daemon.ProbeRunLock(s.st.DataDir())
 	st := eon.DaemonStatus{Supervised: daemon.IsSupervised()}

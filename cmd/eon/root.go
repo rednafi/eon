@@ -80,7 +80,7 @@ machine-readable output on stdout. Errors and warnings go to stderr.`,
 // tagUsageErrors wires every command (root + descendants) so flag-parse
 // and positional-arg violations propagate as errUsage-wrapped errors.
 // Without this, cobra surfaces those errors with no sentinel and the
-// exit-code mapper falls through to 1 (unexpected) — but per contract
+// exit-code mapper falls through to 1 (unexpected), but per contract
 // they are usage errors (exit 2).
 func tagUsageErrors(c *cobra.Command) {
 	c.SetFlagErrorFunc(func(_ *cobra.Command, err error) error {
@@ -101,8 +101,7 @@ func tagUsageErrors(c *cobra.Command) {
 }
 
 // dataDir returns the effective data directory: the --data-dir flag if
-// set, otherwise the platform default. The directory is created on
-// demand.
+// set, otherwise the platform default. The directory is created on demand.
 func dataDir() (string, error) {
 	if globalFlags.dataDir != "" {
 		return globalFlags.dataDir, nil
@@ -110,9 +109,10 @@ func dataDir() (string, error) {
 	return daemon.DataDir()
 }
 
-// openService opens the store and wraps it in a service. ctx scopes
-// the store open (schema apply, migrations); the returned cleanup
-// closes the store and commands should defer it.
+// openService opens the store and wraps it in a service.
+//
+// ctx scopes schema setup and migrations.
+// Commands should defer the returned cleanup.
 func openService(ctx context.Context) (*service, func(), error) {
 	dir, err := dataDir()
 	if err != nil {
@@ -128,7 +128,7 @@ func openService(ctx context.Context) (*service, func(), error) {
 // warnIfDaemonDown writes a single stderr line when no daemon is
 // running and no supervisor is installed. The check is done against
 // the OS-level flock at $DATA/eon.lock, so a crashed daemon is
-// instantly visible (the kernel released the lock).
+// instantly visible because the kernel released the lock.
 func warnIfDaemonDown(_ context.Context, s *service, w io.Writer) {
 	if globalFlags.quiet {
 		return
@@ -166,7 +166,7 @@ func exitCode(err error) int {
 
 // isUnknownCommand recognises Cobra's untyped "unknown command" error.
 // Cobra does not export a sentinel for this case, so prefix detection
-// is the only available hook. Narrow and anchored — false positives
+// is the only available hook. Narrow and anchored: false positives
 // would only flow through if a future error message starts identically.
 func isUnknownCommand(err error) bool {
 	return strings.HasPrefix(err.Error(), "unknown command")
@@ -180,6 +180,6 @@ func usageErrf(format string, args ...any) error {
 	return fmt.Errorf("%w: "+format, append([]any{errUsage}, args...)...)
 }
 
-// stderr is a thin wrapper so tests can inject a buffer; real
-// invocations write to os.Stderr.
+// stderr is a thin wrapper for test injection.
+// Real invocations write to os.Stderr.
 var stderr io.Writer = os.Stderr

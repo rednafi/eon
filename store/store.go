@@ -1,3 +1,4 @@
+// Package store persists jobs and run history in SQLite.
 package store
 
 import (
@@ -50,39 +51,40 @@ CREATE TABLE IF NOT EXISTS runs (
 CREATE INDEX IF NOT EXISTS runs_job_started ON runs(job_id, started_at DESC);
 `
 
-// jobCols is the canonical job-row column list ordering. Every
-// SELECT that goes through [scanJob] must use this list in this
-// order, or the scan will silently misalign fields.
+// jobCols is the canonical job-row column order.
+// Every SELECT passed to scanJob must use this order.
+// Otherwise fields silently misalign.
 const jobCols = `id, kind, name, command_json, env_json, cron_expr, fire_at,
 	status, last_run_at, last_status, next_fire_at, created_at, updated_at`
 
-// runCols is the canonical run-row column list ordering for
-// [scanRun]. Same alignment invariant as [jobCols].
+// runCols is the canonical run-row column order for scanRun.
+// It has the same alignment invariant as jobCols.
 const runCols = `id, job_id, started_at, finished_at, exit_code, status`
 
-// Retention axes applied by [Store.GC]:
+// Retention axes applied by Store.GC:
 //   - RetentionPerJob: keep up to this many most-recent runs per job.
 //   - RetentionMaxAge: drop runs older than this regardless of job.
-//   - RetentionMaxTotal: hard ceiling on the runs table; oldest rows are
-//     trimmed across all jobs until the total fits.
+//   - RetentionMaxTotal: cap the whole runs table.
+//     Oldest rows are trimmed across all jobs until the total fits.
 const (
 	RetentionPerJob   = 100
 	RetentionMaxAge   = 100 * 24 * time.Hour
 	RetentionMaxTotal = 144_000
 )
 
-// DefaultListLimit caps [Store.ListJobs] output when no Limit is set.
+// DefaultListLimit caps Store.ListJobs output when no Limit is set.
 // 100 rows is the largest a human terminal renders cleanly and
 // matches the run-history retention so the numbers feel consistent.
 const DefaultListLimit = 100
 
-// ListOpts filters [Store.ListJobs] results. Zero value returns
-// every job ordered by created_at descending. Set Limit > 0 to cap
-// the page; Limit < 0 disables the cap.
+// ListOpts filters Store.ListJobs results.
+// Zero value returns every job ordered by created_at descending.
+// Limit > 0 caps the page.
+// Limit <= 0 disables the store-level cap.
 type ListOpts struct {
 	Kind   eon.JobKind   // empty = both kinds
 	Status eon.JobStatus // empty = all statuses
-	Limit  int           // 0 = no cap at the store layer; negative = no cap
+	Limit  int           // <=0 means no cap at the store layer
 	Offset int           // rows to skip
 }
 
@@ -91,19 +93,22 @@ type ListOpts struct {
 // the scheduler.
 const MaxOutputBytes = 100 * 1024
 
-// Store holds the SQLite-backed jobs + run history. Concurrent
-// callers against the same data dir are safe: SQLite's WAL mode +
-// busy_timeout(30s) serialises writers transparently.
+// Store holds SQLite-backed jobs and run history.
+// Concurrent callers against the same data dir are safe.
+// SQLite WAL mode and busy_timeout serialize writers.
 type Store struct {
 	db      *sql.DB
 	dataDir string
 	dbPath  string
 }
 
-// Open returns a [Store] writing to dataDir/eon.db with the schema
-// applied. Pass an empty dataDir to use an in-memory database; this
-// is intended for tests. ctx scopes the schema-apply and migration
-// queries; it does not bound the lifetime of the returned Store.
+// Open returns a Store with its schema applied.
+//
+// Behavior:
+//   - Non-empty dataDir writes to dataDir/eon.db.
+//   - Empty dataDir uses an in-memory database for tests.
+//   - ctx scopes schema and migration queries.
+//   - ctx does not bound the returned Store's lifetime.
 func Open(ctx context.Context, dataDir string) (*Store, error) {
 	var dbPath, dsn string
 	switch dataDir {
@@ -115,11 +120,10 @@ func Open(ctx context.Context, dataDir string) (*Store, error) {
 			return nil, fmt.Errorf("mkdir data dir: %w", err)
 		}
 		dbPath = filepath.Join(dataDir, "eon.db")
-		// busy_timeout MUST be first: pragmas are applied in DSN order,
-		// and journal_mode(WAL) on a fresh database needs an exclusive
-		// lock. Without busy_timeout already armed, concurrent openers
-		// (multiple CLI invocations racing against a brand-new file)
-		// get SQLITE_BUSY immediately instead of waiting their turn.
+		// busy_timeout must be first.
+		// Pragmas are applied in DSN order.
+		// journal_mode(WAL) on a fresh database needs an exclusive lock.
+		// Concurrent first openers should wait, not fail with SQLITE_BUSY.
 		dsn = "file:" + url.PathEscape(dbPath) +
 			"?_pragma=busy_timeout(30000)" +
 			"&_pragma=journal_mode(WAL)" +
@@ -141,17 +145,16 @@ func Open(ctx context.Context, dataDir string) (*Store, error) {
 	return &Store{db: db, dataDir: dataDir, dbPath: dbPath}, nil
 }
 
-// applySchema applies the schema DDL and runs additive migrations
-// against any pre-existing database. CREATE TABLE / CREATE INDEX are
-// IF NOT EXISTS so the base DDL is idempotent. Column additions are
-// done as ALTER TABLE … ADD COLUMN with IF NOT EXISTS via a
-// pragma_table_info check, so older databases pick up new columns on
-// startup without forcing the user to seppuku.
+// applySchema applies schema DDL and additive migrations.
 //
-// Writes here can race with concurrent openers against the same data
-// dir (e.g. many CLI invocations launched in parallel). DSN-level
-// busy_timeout doesn't cover the very first journal_mode/WAL setup
-// reliably, so the DDL steps are wrapped in [retryOnBusy].
+// Invariants:
+//   - Base DDL is idempotent.
+//   - Older databases migrate on startup.
+//   - There is no separate upgrade command.
+//
+// Concurrent first opens can race WAL setup.
+// DSN busy_timeout does not cover that window reliably.
+// retryOnBusy handles it.
 func applySchema(ctx context.Context, db *sql.DB) error {
 	if err := retryOnBusy(ctx, func() error {
 		_, err := db.ExecContext(ctx, schema)
@@ -171,8 +174,8 @@ func applySchema(ctx context.Context, db *sql.DB) error {
 			_, err := db.ExecContext(ctx, m.alter)
 			return err
 		}); err != nil {
-			// Another process may have raced us to the same migration.
-			// Treat that as success: the column we wanted is now present.
+			// Another process may have applied the same migration.
+			// The desired column exists, so this opener is done.
 			if has2, err2 := columnExists(ctx, db, m.table, m.column); err2 == nil && has2 {
 				continue
 			}
@@ -182,25 +185,23 @@ func applySchema(ctx context.Context, db *sql.DB) error {
 	return nil
 }
 
-// sqliteBusy is SQLITE_BUSY — the primary result code for write
-// contention. Extended codes (SQLITE_BUSY_RECOVERY, _SNAPSHOT,
-// _TIMEOUT) share its low byte. Stable across SQLite versions; part
-// of SQLite's public C API. See https://www.sqlite.org/rescode.html.
+// sqliteBusy is SQLITE_BUSY.
+// Extended busy codes share its low byte.
 const sqliteBusy = 5
 
 // isBusy detects SQLITE_BUSY using modernc's typed error. Used by
-// [retryOnBusy] to bound the schema-apply retry loop.
+// retryOnBusy to bound the schema-apply retry loop.
 func isBusy(err error) bool {
 	se, ok := errors.AsType[*sqlite.Error](err)
 	return ok && se.Code()&0xff == sqliteBusy
 }
 
-// retryOnBusy invokes fn with exponential backoff while it returns
-// SQLITE_BUSY. The DSN-level busy_timeout covers most cases, but
-// schema DDL against a freshly-created database can race the
-// journal_mode(WAL) transition; this is the safety net for that
-// window. Caps at ~6s total wait, which is well within the implicit
-// time budget of a CLI command.
+// retryOnBusy invokes fn with exponential backoff on SQLITE_BUSY.
+//
+// Why this exists:
+//   - DSN busy_timeout covers most contention.
+//   - Fresh schema DDL can still race journal_mode(WAL).
+//   - The retry budget is roughly 6 seconds.
 func retryOnBusy(ctx context.Context, fn func() error) error {
 	const maxAttempts = 8
 	delay := 25 * time.Millisecond
@@ -267,9 +268,9 @@ func (s *Store) AddJob(ctx context.Context, spec eon.JobSpec, now time.Time) (eo
 	} else {
 		fireAt = spec.FireAt.UnixNano()
 	}
-	// Compute next_fire_at up-front so the scheduler's index lookup
-	// sees the new row's deadline without any post-insert fixup.
-	// Build a temporary Job so we can reuse the canonical NextFire.
+	// Compute next_fire_at before insert.
+	// The scheduler can then find the new job through its indexed due scan.
+	// Use a temporary Job so NextFire remains the canonical calculation.
 	var nextFire int64
 	if t := eon.NextFire(eon.Job{
 		Kind: kind, Cron: spec.Cron, FireAt: spec.FireAt, Status: eon.StatusEnabled,
@@ -277,15 +278,14 @@ func (s *Store) AddJob(ctx context.Context, spec eon.JobSpec, now time.Time) (eo
 		nextFire = t.UnixNano()
 	}
 
-	// Generate a 5-char alphanumeric ID; retry on the (vanishingly
-	// rare) PK collision against an existing row. After 8 misses the
-	// table is effectively full and we surface a real error.
 	const q = `INSERT INTO jobs
 		(id, kind, name, command_json, env_json, cron_expr, fire_at, status,
 		 next_fire_at, created_at, updated_at)
 		VALUES (?, ?, ?, ?, ?, ?, ?, 'enabled', ?, ?, ?)`
 	for range 8 {
 		id := newJobID()
+		// Random ID collisions are rare.
+		// Retry a few times before surfacing a real insert error.
 		_, err := s.db.ExecContext(ctx, q, string(id), kind, spec.Name, cmdJSON, envJSON, spec.Cron, fireAt,
 			nextFire, now.UnixNano(), now.UnixNano())
 		if err == nil {
@@ -309,15 +309,12 @@ func newJobID() eon.JobID {
 	return eon.JobID(buf[:])
 }
 
-// sqliteConstraint is SQLITE_CONSTRAINT — the primary result code for
-// all integrity-constraint violations. Extended codes (e.g.
-// SQLITE_CONSTRAINT_PRIMARYKEY=1555, SQLITE_CONSTRAINT_UNIQUE=2067)
-// share its low byte. Stable across SQLite versions; part of SQLite's
-// public C API. See https://www.sqlite.org/rescode.html.
+// sqliteConstraint is SQLITE_CONSTRAINT.
+// Extended constraint codes share its low byte.
 const sqliteConstraint = 19
 
 // isUniqueViolation detects SQLite UNIQUE / PK constraint conflicts
-// using modernc's typed error. Used by [Store.AddJob] to retry on PK
+// using modernc's typed error. Used by Store.AddJob to retry on PK
 // collisions during 5-char ID minting.
 func isUniqueViolation(err error) bool {
 	se, ok := errors.AsType[*sqlite.Error](err)
@@ -334,10 +331,10 @@ func (s *Store) Job(ctx context.Context, id eon.JobID) (eon.Job, error) {
 	return job, err
 }
 
-// JobByName returns the job whose name exactly matches. Names are not
-// unique in the schema, so on collision the lowest-id match wins; the
-// CLI uses this as a fallback when the user passes a name instead of
-// a 5-char ID.
+// JobByName returns the lowest-ID exact-name match.
+//
+// Names are not unique.
+// The CLI uses this when the user passes a name instead of a 5-char ID.
 func (s *Store) JobByName(ctx context.Context, name string) (eon.Job, error) {
 	q := `SELECT ` + jobCols + ` FROM jobs WHERE name = ? ORDER BY id ASC LIMIT 1`
 	row := s.db.QueryRowContext(ctx, q, name)
@@ -365,9 +362,8 @@ func (s *Store) ListJobs(ctx context.Context, opts ListOpts) ([]eon.Job, error) 
 	if len(clauses) > 0 {
 		q += " WHERE " + strings.Join(clauses, " AND ")
 	}
-	// Random IDs make id-order meaningless; ordering by created_at DESC
-	// surfaces the user's most-recent additions first, which is what
-	// they almost always want to see in `eon ls`.
+	// Random IDs make ID ordering meaningless.
+	// Users expect `eon ls` to show recent additions first.
 	q += " ORDER BY created_at DESC, id ASC"
 	if opts.Limit > 0 {
 		q += " LIMIT ?"
@@ -406,10 +402,12 @@ func (s *Store) DeleteJob(ctx context.Context, id eon.JobID) error {
 	return nil
 }
 
-// SetJobStatus updates the status and updated_at. As a state-machine
-// invariant, transitioning to 'done' zeros next_fire_at so the scheduler
-// stops considering the row entirely; other transitions leave the
-// column alone (re-enabling a job is paired with [AdvanceNextFire]).
+// SetJobStatus updates status and updated_at.
+//
+// State-machine invariant:
+//   - done clears next_fire_at.
+//   - other statuses leave next_fire_at alone.
+//   - re-enable must call AdvanceNextFire.
 func (s *Store) SetJobStatus(ctx context.Context, id eon.JobID, status eon.JobStatus, now time.Time) error {
 	q := `UPDATE jobs SET status = ?, updated_at = ? WHERE id = ?`
 	if status == eon.StatusDone {
@@ -425,10 +423,12 @@ func (s *Store) SetJobStatus(ctx context.Context, id eon.JobID, status eon.JobSt
 	return nil
 }
 
-// AdvanceNextFire sets the row's next_fire_at to the given instant.
-// Pass the zero Time to mean "never fires again" (stored as 0 nanos).
-// Used by the scheduler at fire-claim time to step the schedule forward
-// before exec'ing, and by the CLI after re-enabling.
+// AdvanceNextFire sets next_fire_at.
+//
+// Uses:
+//   - Zero time means "never fires again".
+//   - Scheduler calls this before exec at fire-claim time.
+//   - CLI calls this after re-enabling a job.
 func (s *Store) AdvanceNextFire(ctx context.Context, id eon.JobID, next time.Time) error {
 	var nano int64
 	if !next.IsZero() {
@@ -445,10 +445,9 @@ func (s *Store) AdvanceNextFire(ctx context.Context, id eon.JobID, next time.Tim
 	return nil
 }
 
-// DueJobs returns enabled jobs whose scheduled fire is at or before
-// now, ordered by deadline ascending. Backed by the
-// (status, next_fire_at) index — an O(log N) range scan regardless
-// of total job count.
+// DueJobs returns enabled jobs due at or before now.
+// Results are ordered by deadline ascending.
+// The (status, next_fire_at) index keeps this as a range scan.
 func (s *Store) DueJobs(ctx context.Context, now time.Time) ([]eon.Job, error) {
 	q := `SELECT ` + jobCols + `
 		FROM jobs
@@ -470,10 +469,9 @@ func (s *Store) DueJobs(ctx context.Context, now time.Time) ([]eon.Job, error) {
 	return out, rows.Err()
 }
 
-// SoonestDeadline returns the earliest next_fire_at strictly after
-// now among enabled jobs. Returns the zero time when no future fire
-// is scheduled (the scheduler then sleeps until interrupted by SIGHUP).
-// Index lookup, microsecond-scale even at large job counts.
+// SoonestDeadline returns the next enabled deadline after now.
+// Zero means there is no future fire.
+// The scheduler then sleeps until Wake or MaxSleep.
 func (s *Store) SoonestDeadline(ctx context.Context, now time.Time) (time.Time, error) {
 	const q = `SELECT next_fire_at FROM jobs
 		WHERE status = 'enabled' AND next_fire_at > ?
@@ -499,10 +497,11 @@ func (s *Store) MarkJobRan(ctx context.Context, id eon.JobID, status eon.RunStat
 	return nil
 }
 
-// RecordRun inserts a completed run in one statement. There is no
-// "running" intermediate state — if the daemon dies mid-execution,
-// no row exists for the lost work, so there is nothing to clean up
-// on the next startup.
+// RecordRun inserts a completed run in one statement.
+//
+// There is no durable "running" row.
+// If the daemon dies mid-execution, lost work is absent from history.
+// Startup has no half-written run to repair.
 func (s *Store) RecordRun(ctx context.Context, jobID eon.JobID, startedAt, finishedAt time.Time, exitCode int, status eon.RunStatus, output []byte) (eon.Run, error) {
 	if output == nil {
 		output = []byte{}
@@ -542,7 +541,7 @@ func (s *Store) ListRuns(ctx context.Context, jobID eon.JobID, limit int) ([]eon
 	if limit <= 0 {
 		limit = 100
 	}
-	q := `SELECT ` + runCols + ` FROM runs WHERE job_id = ? ORDER BY started_at DESC LIMIT ?`
+	q := `SELECT ` + runCols + ` FROM runs WHERE job_id = ? ORDER BY started_at DESC, id DESC LIMIT ?`
 	rows, err := s.db.QueryContext(ctx, q, string(jobID), limit)
 	if err != nil {
 		return nil, fmt.Errorf("list runs: %w", err)
@@ -564,7 +563,7 @@ func (s *Store) ListRuns(ctx context.Context, jobID eon.JobID, limit int) ([]eon
 // ordered oldest-first so the caller can replay history in
 // chronological order.
 func (s *Store) ListRunsSince(ctx context.Context, jobID eon.JobID, since time.Time) ([]eon.Run, error) {
-	q := `SELECT ` + runCols + ` FROM runs WHERE job_id = ? AND started_at >= ? ORDER BY started_at ASC`
+	q := `SELECT ` + runCols + ` FROM runs WHERE job_id = ? AND started_at >= ? ORDER BY started_at ASC, id ASC`
 	rows, err := s.db.QueryContext(ctx, q, string(jobID), since.UnixNano())
 	if err != nil {
 		return nil, fmt.Errorf("list runs since: %w", err)
@@ -581,8 +580,27 @@ func (s *Store) ListRunsSince(ctx context.Context, jobID eon.JobID, since time.T
 	return out, rows.Err()
 }
 
+// ListRunsAfter returns runs inserted after afterID, oldest first.
+func (s *Store) ListRunsAfter(ctx context.Context, jobID eon.JobID, afterID int64) ([]eon.Run, error) {
+	q := `SELECT ` + runCols + ` FROM runs WHERE job_id = ? AND id > ? ORDER BY id ASC`
+	rows, err := s.db.QueryContext(ctx, q, string(jobID), afterID)
+	if err != nil {
+		return nil, fmt.Errorf("list runs after: %w", err)
+	}
+	defer rows.Close()
+	var out []eon.Run
+	for rows.Next() {
+		run, err := scanRun(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, run)
+	}
+	return out, rows.Err()
+}
+
 func (s *Store) LatestRun(ctx context.Context, jobID eon.JobID) (eon.Run, error) {
-	q := `SELECT ` + runCols + ` FROM runs WHERE job_id = ? ORDER BY started_at DESC LIMIT 1`
+	q := `SELECT ` + runCols + ` FROM runs WHERE job_id = ? ORDER BY started_at DESC, id DESC LIMIT 1`
 	row := s.db.QueryRowContext(ctx, q, string(jobID))
 	run, err := scanRun(row)
 	if errors.Is(err, sql.ErrNoRows) {
@@ -603,14 +621,14 @@ func (s *Store) OpenRunLog(ctx context.Context, runID int64) (io.ReadCloser, err
 	return io.NopCloser(bytes.NewReader(out)), nil
 }
 
-// GC enforces retention along three axes, in order: drop runs older
-// than maxAge; trim each job's run history to perJob most-recent
-// rows; cap the total runs table at maxTotal rows by dropping the
-// oldest across all jobs. A non-positive maxTotal disables the
-// global cap. With the schema's ON DELETE CASCADE there is no
-// out-of-band cleanup work; deleting rows is enough. The scheduler
-// calls GC at startup and periodically; the package-level defaults
-// are [RetentionPerJob], [RetentionMaxAge], and [RetentionMaxTotal].
+// GC enforces retention in this order:
+//   - Drop runs older than maxAge.
+//   - Keep perJob most-recent runs per job.
+//   - If maxTotal is positive, cap the whole runs table.
+//
+// Deleting run rows is enough.
+// Job deletion cascades handle related cleanup.
+// The scheduler calls GC at startup and periodically.
 func (s *Store) GC(ctx context.Context, now time.Time, perJob int, maxAge time.Duration, maxTotal int) error {
 	cutoff := now.Add(-maxAge).UnixNano()
 	tx, err := s.db.BeginTx(ctx, nil)
@@ -622,13 +640,17 @@ func (s *Store) GC(ctx context.Context, now time.Time, perJob int, maxAge time.D
 	if _, err := tx.ExecContext(ctx, `DELETE FROM runs WHERE started_at < ?`, cutoff); err != nil {
 		return fmt.Errorf("gc by age: %w", err)
 	}
+	// Break timestamp ties by run ID so GC keeps the newest rows
+	// deterministically even when several runs share started_at.
 	const trimQ = `
 		DELETE FROM runs
 		WHERE id IN (
 			SELECT id FROM runs r1
 			WHERE (
 				SELECT COUNT(*) FROM runs r2
-				WHERE r2.job_id = r1.job_id AND r2.started_at >= r1.started_at
+				WHERE r2.job_id = r1.job_id
+				  AND (r2.started_at > r1.started_at
+				       OR (r2.started_at = r1.started_at AND r2.id >= r1.id))
 			) > ?
 		)`
 	if _, err := tx.ExecContext(ctx, trimQ, perJob); err != nil {
@@ -652,8 +674,8 @@ func (s *Store) GC(ctx context.Context, now time.Time, perJob int, maxAge time.D
 	return nil
 }
 
-// Counts returns the per-kind / per-state aggregate used by
-// `eon status`. One round-trip.
+// Counts returns the per-kind / per-state aggregate used by eon status.
+// One round-trip.
 func (s *Store) Counts(ctx context.Context) (eon.JobCounts, error) {
 	var c eon.JobCounts
 	row := s.db.QueryRowContext(ctx, `

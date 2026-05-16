@@ -10,18 +10,17 @@ import (
 )
 
 // TestDarwinE2E builds eon for the host and exercises the full
-// user-visible surface natively on macOS. Mirrors TestLinuxE2E but
-// runs against Darwin's exec/flock/signaling.
+// user-visible surface natively on macOS, including Darwin's
+// exec/flock/signaling behavior.
 func TestDarwinE2E(t *testing.T) {
 	requireGOOS(t, "darwin")
 	runE2E(t)
 }
 
-// TestDarwinInstallWritesPlist checks the launchd LaunchAgent plist
-// is shaped as expected. We do not actually bootstrap launchctl —
-// that would require a real user GUI session and pollute the host —
-// so the test re-implements the file-write half of Install() against
-// a sandboxed HOME.
+// TestDarwinInstallWritesPlist checks launchd discovery without
+// bootstrapping launchctl. A real bootstrap would require a user GUI
+// session and would pollute the host, so the test writes the expected
+// LaunchAgent path under a sandboxed HOME.
 func TestDarwinInstallWritesPlist(t *testing.T) {
 	requireGOOS(t, "darwin")
 
@@ -33,16 +32,13 @@ func TestDarwinInstallWritesPlist(t *testing.T) {
 	t.Setenv("HOME", fakeHome)
 	mustRun(t, bin, dataDir, "status")
 
-	// The Install() bootstrap step needs a real user session, so we
-	// don't invoke it directly; we just verify the path our code
-	// targets is the canonical launchd LaunchAgents directory.
+	// The Install bootstrap step needs a real user session, so verify the
+	// canonical launchd LaunchAgents path directly.
 	plistDir := filepath.Join(fakeHome, "Library", "LaunchAgents")
 	if err := os.MkdirAll(plistDir, 0o755); err != nil {
 		t.Fatalf("mkdir LaunchAgents: %v", err)
 	}
-	// And that any plist matching our label would be picked up by
-	// IsSupervised(). The eon binary checks os.Stat on this exact
-	// path, so dropping a marker file proves the discovery path.
+	// IsSupervised checks this exact path, so a marker file proves discovery.
 	plistPath := filepath.Join(plistDir, "dev.eon.eond.plist")
 	if err := os.WriteFile(plistPath, []byte("<plist/>\n"), 0o644); err != nil {
 		t.Fatalf("write plist: %v", err)

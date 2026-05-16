@@ -2,9 +2,11 @@ package eon
 
 import "errors"
 
-// Sentinel errors. Front-ends map these to exit codes; library
-// consumers use [errors.Is] to branch. New entries here are part of
-// the public contract — add deliberately.
+// Sentinel errors are part of the public contract.
+//
+// Front-ends map them to exit codes.
+// Library consumers use errors.Is to branch.
+// Add new entries deliberately.
 var (
 	ErrNotFound      = errors.New("eon: not found")
 	ErrConflict      = errors.New("eon: conflict")

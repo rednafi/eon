@@ -1,10 +1,5 @@
 package daemon
 
-// Supervisor install: writes the platform's user-level service unit
-// (launchd LaunchAgent on macOS, systemd --user unit on Linux) so the
-// daemon starts at login and respawns on crash. Both platforms are
-// compiled in; runtime.GOOS picks which one runs.
-
 import (
 	"errors"
 	"fmt"
@@ -22,10 +17,15 @@ const (
 	unitName    = "eond.service" // systemd --user unit filename (linux)
 )
 
-// Install writes the platform supervisor unit and starts it. The
-// installed return is true when this call actually wrote a new unit;
-// false when one was already in place (true no-op). Returns
-// [ErrUnsupportedOS] on platforms other than darwin or linux.
+// Install writes the platform supervisor unit and starts it.
+//
+// Supported supervisors:
+//   - macOS: launchd LaunchAgent.
+//   - Linux: systemd --user unit.
+//
+// The daemon then starts at login and respawns on crash.
+// The installed result is true only when a new unit was written.
+// It returns ErrUnsupportedOS on other platforms.
 func Install(binary, dataDir string) (installed bool, err error) {
 	if IsSupervised() {
 		return false, nil
@@ -43,10 +43,10 @@ func Install(binary, dataDir string) (installed bool, err error) {
 	}
 }
 
-// Uninstall removes the platform supervisor unit. The removed return
-// is true when this call actually removed a unit; false when none
-// was installed (true no-op). Returns [ErrUnsupportedOS] on
-// unsupported platforms.
+// Uninstall removes the platform supervisor unit.
+//
+// The removed result is true only when a unit was present.
+// It returns ErrUnsupportedOS on unsupported platforms.
 func Uninstall() (removed bool, err error) {
 	if !IsSupervised() {
 		return false, nil
@@ -61,8 +61,8 @@ func Uninstall() (removed bool, err error) {
 	}
 }
 
-// IsSupervised reports whether a supervisor unit is currently
-// installed (regardless of running state).
+// IsSupervised reports whether a supervisor unit is currently installed
+// regardless of running state.
 func IsSupervised() bool {
 	p, err := unitPath()
 	if err != nil {
@@ -73,7 +73,7 @@ func IsSupervised() bool {
 }
 
 // unitPath returns the on-disk location of the platform unit file.
-// Returns "" + ErrUnsupportedOS on platforms we don't handle.
+// Returns ErrUnsupportedOS on platforms we don't handle.
 func unitPath() (string, error) {
 	switch runtime.GOOS {
 	case "darwin":

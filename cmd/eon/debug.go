@@ -53,8 +53,8 @@ Requires sqlite3 on PATH.`,
 			if _, err := os.Stat(dbPath); err != nil {
 				return fmt.Errorf("database not found at %s: %w", dbPath, err)
 			}
-			// nano-epoch → human dates via datetime(); column mode +
-			// headers make the starter table actually legible.
+			// Convert nano-epoch values to human dates.
+			// Column mode and headers keep the starter table legible.
 			args := []string{
 				"-cmd", ".headers on",
 				"-cmd", ".mode column",

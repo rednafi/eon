@@ -15,11 +15,9 @@ import (
 	"github.com/rogpeppe/go-internal/testscript"
 )
 
-// TestMain wires the eon binary as a testscript-callable command so
-// the .txtar scripts in testdata/script can drive it like a real
-// shell session — same code path as a real shell invocation, but
-// in-process so we avoid the cost of forking.
 func TestMain(m *testing.M) {
+	// Wire eon as a testscript-callable command. The scripts drive it like
+	// a real shell session, but in-process so we avoid the cost of forking.
 	testscript.Main(m, map[string]func(){
 		"eon":     func() { os.Exit(runEonMain()) },
 		"timeout": func() { os.Exit(runTimeoutMain()) },
@@ -79,14 +77,12 @@ func TestScripts(t *testing.T) {
 	testscript.Run(t, testscript.Params{
 		Dir: "testdata/script",
 		Setup: func(env *testscript.Env) error {
-			// Each script gets its own HOME / XDG so the data
-			// directory lives entirely inside $WORK and never
-			// touches the user's real eon state.
+			// Each script gets its own HOME / XDG so the data directory lives
+			// entirely inside $WORK and never touches the user's real eon state.
 			env.Setenv("HOME", env.WorkDir)
 			env.Setenv("XDG_DATA_HOME", env.WorkDir+"/xdg")
 			env.Setenv("XDG_CONFIG_HOME", env.WorkDir+"/xdg-config")
-			// FANG_DISABLE_STYLES isn't strictly necessary (Fang
-			// detects non-TTY), but pinning it makes the test
+			// Fang detects non-TTY output, but pinning these keeps the golden
 			// output byte-stable across terminal types.
 			env.Setenv("CLICOLOR", "0")
 			env.Setenv("NO_COLOR", "1")

@@ -1,9 +1,6 @@
 // Package tests holds native end-to-end coverage for the eon binary
-// on each supported OS. The platform-specific test files
-// (linux_test.go, darwin_test.go) build a fresh binary, run it
-// against a temp data directory, and assert the user-visible
-// behaviour. They share this file's helpers; there is no build tag
-// here so go's tooling can see the helpers from either platform.
+// on each supported OS. Platform-specific files build a fresh binary,
+// run it against a temp data directory, and assert user-visible behavior.
 package tests
 
 import (
@@ -20,9 +17,10 @@ import (
 	"time"
 )
 
-// buildBinary cross-compiles eon for the host OS into a temp file and
-// returns its path. Per-run builds keep the test hermetic; the Go
-// build cache makes this ~1 s.
+// buildBinary cross-compiles eon for the host OS into a temp file.
+//
+// Per-run builds keep the test hermetic.
+// The Go build cache keeps this cheap.
 func buildBinary(t *testing.T) string {
 	t.Helper()
 	bin := filepath.Join(t.TempDir(), "eon")
@@ -50,9 +48,11 @@ func repoRoot(t *testing.T) string {
 	return ""
 }
 
-// runCmd executes eon with the given argv against the given data dir
-// and returns combined stdout+stderr plus exit code. Non-zero exit is
-// NOT a test failure here — callers decide what to assert.
+// runCmd executes eon with argv against the given data dir.
+//
+// It returns combined stdout and stderr plus exit code.
+// Non-zero exit is not a test failure here.
+// Callers decide what to assert.
 func runCmd(t *testing.T, bin, dataDir string, argv ...string) (out string, code int) {
 	t.Helper()
 	args := append([]string{"--data-dir", dataDir, "--quiet"}, argv...)
@@ -79,10 +79,9 @@ func mustRun(t *testing.T, bin, dataDir string, argv ...string) string {
 	return out
 }
 
-// runE2E exercises the user-visible CLI surface on whichever host we
-// happen to be on. Both platform-gated test files call it to keep the
-// shared E2E shape in one place; each can then layer on any
-// platform-specific assertions.
+// runE2E exercises the user-visible CLI surface on the current host. Both
+// platform-gated test files call it so the shared E2E shape stays in one
+// place and each OS file can layer on platform-specific assertions.
 func runE2E(t *testing.T) {
 	t.Helper()
 	bin := buildBinary(t)
@@ -113,9 +112,9 @@ func runE2E(t *testing.T) {
 			argv []string
 			want int
 		}{
-			{"usage_no_flag", []string{"add"}, 2},
-			{"not_found", []string{"show", "nope0"}, 3},
-			{"invalid_spec", []string{"add", "--cron", "garbage", "--", "echo", "x"}, 5},
+			{name: "usage_no_flag", argv: []string{"add"}, want: 2},
+			{name: "not_found", argv: []string{"show", "nope0"}, want: 3},
+			{name: "invalid_spec", argv: []string{"add", "--cron", "garbage", "--", "echo", "x"}, want: 5},
 		}
 		for _, tc := range cases {
 			t.Run(tc.name, func(t *testing.T) {
@@ -194,8 +193,8 @@ func runE2E(t *testing.T) {
 }
 
 // requireGOOS skips the test when run on the wrong platform. Belt and
-// braces alongside the //go:build tag — protects callers who execute
-// the helpers outside a normal `go test` run.
+// braces alongside the go:build tag protects callers who execute helpers
+// outside a normal `go test` run.
 func requireGOOS(t *testing.T, want string) {
 	t.Helper()
 	if runtime.GOOS != want {

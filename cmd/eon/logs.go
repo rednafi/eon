@@ -91,11 +91,15 @@ Header format: '==> run #ID status exit=N finished=TIME'.`,
 // streamLogs writes the requested run output to w. Without --since or
 // --follow it emits just the latest run, raw. With --since it emits
 // every completed run in the window (with headers). With --follow it
-// then polls for new completed runs until ctx is cancelled.
+// then polls by run ID until ctx is cancelled, so bursts between polls
+// are not collapsed into only the latest run.
 func streamLogs(ctx context.Context, st *store.Store, jobID eon.JobID, opts logOpts, w io.Writer) error {
-	// Cheapest path: no flags, dump the latest run raw. A job with
-	// no runs yet is empty-state, not an error — exit cleanly.
+	started := time.Now()
 	if opts.Since == 0 && !opts.Follow {
+		// Cheapest path: no flags, dump the latest run raw.
+		//
+		// A job with no runs yet is empty-state.
+		// Exit cleanly.
 		run, err := st.LatestRun(ctx, jobID)
 		if errors.Is(err, eon.ErrNotFound) {
 			return nil
@@ -108,7 +112,7 @@ func streamLogs(ctx context.Context, st *store.Store, jobID eon.JobID, opts logO
 
 	var lastEmitted int64
 	if opts.Since > 0 {
-		runs, err := st.ListRunsSince(ctx, jobID, time.Now().Add(-opts.Since))
+		runs, err := st.ListRunsSince(ctx, jobID, started.Add(-opts.Since))
 		if err != nil {
 			return err
 		}
@@ -120,6 +124,12 @@ func streamLogs(ctx context.Context, st *store.Store, jobID eon.JobID, opts logO
 				return err
 			}
 			lastEmitted = r.ID
+		}
+		// When --since excludes old history, start following after the
+		// newest pre-existing run instead of replaying it on the first poll.
+		if latest, err := st.LatestRun(ctx, jobID); err == nil &&
+			!latest.StartedAt.After(started) && latest.ID > lastEmitted {
+			lastEmitted = latest.ID
 		}
 	} else if latest, err := st.LatestRun(ctx, jobID); err == nil && !latest.FinishedAt.IsZero() {
 		if err := emitRunWithHeader(ctx, st, latest, opts.Lines, w); err != nil {
@@ -140,14 +150,19 @@ func streamLogs(ctx context.Context, st *store.Store, jobID eon.JobID, opts logO
 			return nil
 		case <-t.C:
 		}
-		latest, err := st.LatestRun(ctx, jobID)
-		if err != nil || latest.ID <= lastEmitted || latest.FinishedAt.IsZero() {
+		runs, err := st.ListRunsAfter(ctx, jobID, lastEmitted)
+		if err != nil {
 			continue
 		}
-		if err := emitRunWithHeader(ctx, st, latest, opts.Lines, w); err != nil {
-			return err
+		for _, run := range runs {
+			if run.FinishedAt.IsZero() {
+				continue
+			}
+			if err := emitRunWithHeader(ctx, st, run, opts.Lines, w); err != nil {
+				return err
+			}
+			lastEmitted = run.ID
 		}
-		lastEmitted = latest.ID
 	}
 }
 

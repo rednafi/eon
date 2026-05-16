@@ -18,8 +18,8 @@ import (
 func runCmd(t *testing.T, dir string, argv ...string) (stdoutS, stderrS string, err error) {
 	t.Helper()
 
-	// Reset persistent flag state between invocations — cobra parses
-	// once but globalFlags persists across calls in-process.
+	// Reset persistent flag state between invocations.
+	// Cobra parses once, but globalFlags persists in-process.
 	prev := globalFlags
 	t.Cleanup(func() { globalFlags = prev })
 
@@ -118,39 +118,41 @@ func TestCLIExitCodesForBadInput(t *testing.T) {
 		argv []string
 		want int
 	}{
-		{"add no args", []string{"add"}, 2},
-		{"add invalid cron", []string{"add", "--cron", "garbage", "--", "echo"}, 5},
-		{"add past time", []string{"add", "--at", "2020-01-01T00:00:00Z", "--", "echo"}, 5},
-		{"add both schedules", []string{"add", "--cron", "@hourly", "--at", "+1h", "echo"}, 2},
-		{"add no command", []string{"add", "--cron", "@hourly"}, 2},
-		// "abcde" is a syntactically valid 5-char ID — lookup misses,
-		// so we expect not-found (exit 3) rather than a usage error.
-		// A non-5-char arg is treated as a name and also misses → 3.
-		{"show unknown 5-char", []string{"show", "abcde"}, 3},
-		{"show unknown name", []string{"show", "nope"}, 3},
-		{"rm unknown 5-char", []string{"rm", "abcde"}, 3},
-		{"enable unknown", []string{"enable", "abcde"}, 3},
-		{"ls bad kind", []string{"ls", "--kind", "weird"}, 2},
+		{name: "add_no_args", argv: []string{"add"}, want: 2},
+		{name: "add_invalid_cron", argv: []string{"add", "--cron", "garbage", "--", "echo"}, want: 5},
+		{name: "add_past_time", argv: []string{"add", "--at", "2020-01-01T00:00:00Z", "--", "echo"}, want: 5},
+		{name: "add_both_schedules", argv: []string{"add", "--cron", "@hourly", "--at", "+1h", "echo"}, want: 2},
+		{name: "add_no_command", argv: []string{"add", "--cron", "@hourly"}, want: 2},
+		// "abcde" is syntactically a valid 5-char ID.
+		// Lookup misses, so this should be not-found.
+		// It should not be a usage error.
+		// A non-5-char arg is treated as a name and also misses -> 3.
+		{name: "show_unknown_id", argv: []string{"show", "abcde"}, want: 3},
+		{name: "show_unknown_name", argv: []string{"show", "nope"}, want: 3},
+		{name: "rm_unknown_id", argv: []string{"rm", "abcde"}, want: 3},
+		{name: "enable_unknown", argv: []string{"enable", "abcde"}, want: 3},
+		{name: "ls_bad_kind", argv: []string{"ls", "--kind", "weird"}, want: 2},
 
 		// Cobra-level usage errors must all land on exit 2.
 		// Without tagUsageErrors these fell through to 1.
-		{"unknown subcommand", []string{"foo"}, 2},
-		{"unknown root flag", []string{"--badflag"}, 2},
-		{"unknown sub flag", []string{"ls", "--badflag"}, 2},
-		{"show no arg", []string{"show"}, 2},
-		{"show extra arg", []string{"show", "abcde", "extra"}, 2},
-		{"show shorthand parse", []string{"show", "-1"}, 2},
-		{"rm no arg", []string{"rm"}, 2},
-		{"rm extra arg", []string{"rm", "abcde", "extra"}, 2},
-		{"enable no arg", []string{"enable"}, 2},
-		{"disable no arg", []string{"disable"}, 2},
-		{"logs no arg", []string{"logs"}, 2},
-		{"logs bad duration", []string{"logs", "abcde", "--since", "garbage"}, 2},
-		{"ls extra arg", []string{"ls", "extra"}, 2},
-		{"status extra arg", []string{"status", "extra"}, 2},
-		{"stop extra arg", []string{"stop", "extra"}, 2},
-		// edit command was removed; treat as unknown subcommand.
-		{"edit gone", []string{"edit", "abcde", "foo"}, 2},
+		{name: "unknown_subcommand", argv: []string{"foo"}, want: 2},
+		{name: "unknown_root_flag", argv: []string{"--badflag"}, want: 2},
+		{name: "unknown_sub_flag", argv: []string{"ls", "--badflag"}, want: 2},
+		{name: "show_no_arg", argv: []string{"show"}, want: 2},
+		{name: "show_extra_arg", argv: []string{"show", "abcde", "extra"}, want: 2},
+		{name: "show_shorthand_parse", argv: []string{"show", "-1"}, want: 2},
+		{name: "rm_no_arg", argv: []string{"rm"}, want: 2},
+		{name: "rm_extra_arg", argv: []string{"rm", "abcde", "extra"}, want: 2},
+		{name: "enable_no_arg", argv: []string{"enable"}, want: 2},
+		{name: "disable_no_arg", argv: []string{"disable"}, want: 2},
+		{name: "logs_no_arg", argv: []string{"logs"}, want: 2},
+		{name: "logs_bad_duration", argv: []string{"logs", "abcde", "--since", "garbage"}, want: 2},
+		{name: "ls_extra_arg", argv: []string{"ls", "extra"}, want: 2},
+		{name: "status_extra_arg", argv: []string{"status", "extra"}, want: 2},
+		{name: "stop_extra_arg", argv: []string{"stop", "extra"}, want: 2},
+		// edit command was removed.
+		// Treat it as an unknown subcommand.
+		{name: "edit_gone", argv: []string{"edit", "abcde", "foo"}, want: 2},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
