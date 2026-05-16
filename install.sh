@@ -1,11 +1,12 @@
 #!/bin/sh
 # eon installer for Linux. Detects arch, downloads the matching
 # release binary, and installs it to /usr/local/bin (or $EON_PREFIX/bin
-# if set). Pinned to v0.1.0 by default; pass EON_VERSION to override.
+# if set). Defaults to the latest GitHub release; pass EON_VERSION to
+# install a specific version.
 
 set -eu
 
-EON_VERSION="${EON_VERSION:-v0.1.0}"
+EON_VERSION="${EON_VERSION:-}"
 EON_PREFIX="${EON_PREFIX:-/usr/local}"
 INSTALL_DIR="${EON_PREFIX}/bin"
 TMPDIR="$(mktemp -d)"
@@ -34,6 +35,26 @@ case "$uname_arch" in
         echo "unsupported arch: $uname_arch" >&2
         exit 1
         ;;
+esac
+
+if [ -z "$EON_VERSION" ] || [ "$EON_VERSION" = "latest" ]; then
+    echo "Resolving latest eon release..."
+    latest_json="$(curl -fsSL https://api.github.com/repos/rednafi/eon/releases/latest)" || {
+        echo "failed to resolve latest eon release" >&2
+        exit 1
+    }
+    EON_VERSION="$(printf '%s\n' "$latest_json" |
+        sed -n 's/.*"tag_name"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' |
+        head -n 1)"
+    if [ -z "$EON_VERSION" ]; then
+        echo "failed to parse latest eon release tag" >&2
+        exit 1
+    fi
+fi
+
+case "$EON_VERSION" in
+    v*) ;;
+    *) EON_VERSION="v$EON_VERSION" ;;
 esac
 
 asset="eon-${EON_VERSION}-${os}-${arch}.tar.gz"
