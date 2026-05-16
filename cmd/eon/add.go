@@ -180,9 +180,11 @@ time is rejected with exit code 5.`,
 	return cmd
 }
 
-// wrapCommand turns the positional argv into the form the scheduler
-// exec's. One positional is treated as a shell line and wrapped in
-// `/bin/sh -c`; two or more are treated as explicit argv.
+// wrapCommand turns positional argv into the scheduler command.
+//
+// Rules:
+//   - One positional is treated as a shell line.
+//   - Two or more positionals are treated as explicit argv.
 func wrapCommand(args []string) []string {
 	if len(args) == 1 {
 		return []string{"/bin/sh", "-c", args[0]}

@@ -165,9 +165,10 @@ func TestSchedulerHonoursDisabled(t *testing.T) {
 }
 
 func TestSchedulerWakePicksUpNewJob(t *testing.T) {
-	// Scheduler starts with no jobs → sleeps on its MaxSleep. AddJob
-	// updates next_fire_at; Wake() interrupts the sleep so the
-	// scheduler picks the new row up without waiting it out.
+	// Scheduler starts with no jobs.
+	// It sleeps on MaxSleep.
+	// AddJob updates next_fire_at.
+	// Wake interrupts sleep so the scheduler sees the new row quickly.
 	st := newStore(t)
 	rr := &recRunner{}
 	s := New(st, Config{Runner: rr})
@@ -186,14 +187,78 @@ func TestSchedulerWakePicksUpNewJob(t *testing.T) {
 	}, now); err != nil {
 		t.Fatalf("AddJob: %v", err)
 	}
-	// In real CLI usage the service's notify() sends SIGHUP to the
-	// daemon, which calls Wake(); the test reaches under that and
-	// calls Wake directly.
+	// In real CLI usage, service.notify sends SIGHUP to the daemon.
+	// The daemon then calls Wake.
+	// This test reaches under that and calls Wake directly.
 	s.Wake()
 
 	if !waitFor(2*time.Second, func() bool { return rr.calls.Load() >= 1 }) {
 		t.Fatalf("scheduler did not pick up the new job; calls=%d", rr.calls.Load())
 	}
+}
+
+func TestSchedulerNextSleepUsesConfiguredClock(t *testing.T) {
+	st := newStore(t)
+	fakeNow := time.Date(2040, 5, 13, 10, 0, 0, 0, time.UTC)
+	if _, err := st.AddJob(t.Context(), eon.JobSpec{
+		Name: "future", Command: []string{"true"}, FireAt: fakeNow.Add(250 * time.Millisecond),
+	}, fakeNow); err != nil {
+		t.Fatalf("AddJob: %v", err)
+	}
+
+	s := New(st, Config{
+		MaxSleep: 10 * time.Second,
+		Now:      func() time.Time { return fakeNow },
+		Runner:   &recRunner{},
+	})
+	got := s.nextSleep(t.Context(), fakeNow)
+	if got < 200*time.Millisecond || got > 300*time.Millisecond {
+		t.Fatalf("nextSleep = %v, want about 250ms from configured Now", got)
+	}
+}
+
+func TestSchedulerOneshotClaimDoesNotOverlapWhileRunning(t *testing.T) {
+	st := newStore(t)
+	gate := make(chan struct{})
+	rr := &recRunner{wait: gate}
+	s := New(st, Config{
+		MaxSleep:      5 * time.Millisecond,
+		MaxConcurrent: 4,
+		Runner:        rr,
+	})
+
+	ctx, cancel := context.WithCancelCause(t.Context())
+	defer cancel(nil)
+
+	now := time.Now()
+	job, err := st.AddJob(ctx, eon.JobSpec{
+		Name: "once-slow", Command: []string{"true"}, FireAt: now.Add(20 * time.Millisecond),
+	}, now)
+	if err != nil {
+		t.Fatalf("AddJob: %v", err)
+	}
+
+	done := make(chan struct{})
+	go func() { defer close(done); _ = s.Start(ctx) }()
+
+	if !waitFor(2*time.Second, func() bool { return rr.calls.Load() >= 1 }) {
+		t.Fatal("oneshot never started")
+	}
+	time.Sleep(75 * time.Millisecond)
+
+	runs, err := st.ListRuns(ctx, job.ID, 100)
+	if err != nil {
+		t.Fatalf("ListRuns: %v", err)
+	}
+	for _, run := range runs {
+		if run.Status == eon.RunSkippedOverlap {
+			t.Fatalf("oneshot recorded overlap while first run was still active: %+v", runs)
+		}
+	}
+
+	close(gate)
+	cancel(errTestCtxEnded)
+	<-done
 }
 
 func TestSchedulerMissedOneshotFiresOnStartup(t *testing.T) {
@@ -210,10 +275,10 @@ func TestSchedulerMissedOneshotFiresOnStartup(t *testing.T) {
 	defer cancel()
 
 	now := time.Now()
-	// Insert directly via the store so we bypass JobSpec.Validate (the
-	// service rejects past fire times at the front door; only the
-	// store layer can hold the simulated "the daemon was down"
-	// invariant).
+	// Insert directly through the store.
+	//
+	// The service rejects past fire times at the front door.
+	// Only the store can model "the daemon was down" invariant.
 	if _, err := st.AddJob(ctx, eon.JobSpec{
 		Name: "missed", Command: []string{"true"}, FireAt: now.Add(-1 * time.Hour),
 	}, now); err != nil {
@@ -289,10 +354,9 @@ func TestExecRunnerResolvesBinaryViaSnapshotPATH(t *testing.T) {
 
 func TestExecRunnerHonoursSIGTERMGrace(t *testing.T) {
 	// Child traps SIGTERM and exits 7. With a 2s grace period the
-	// runtime sends SIGTERM (not SIGKILL) on ctx cancel, so the
-	// trap fires and exit code is 7. With no grace (default),
-	// exec.CommandContext would SIGKILL immediately and the
-	// trap would never run.
+	// runtime sends SIGTERM (not SIGKILL) on ctx cancel, so the trap fires
+	// and exit code is 7. With no grace (default), exec.CommandContext would
+	// SIGKILL immediately and the trap would never run.
 	var sb strBuf
 	ctx, cancel := context.WithCancelCause(t.Context())
 	defer cancel(nil)
@@ -304,9 +368,10 @@ func TestExecRunnerHonoursSIGTERMGrace(t *testing.T) {
 	}()
 
 	code, err := runner.Run(ctx, eon.Job{
-		// `sleep` is a child of sh and absorbs no signals delivered to
-		// sh itself; the `& wait $!` form makes sh's wait interruptible
-		// by the trapped signal so the trap actually fires.
+		// `sleep` is a child of sh.
+		// It does not receive signals delivered to sh.
+		// `& wait $!` makes sh's wait interruptible.
+		// That lets the trap fire.
 		Command: []string{"/bin/sh", "-c", "trap 'exit 7' TERM; sleep 30 & wait $!"},
 	}, &sb)
 	if err != nil {
@@ -409,13 +474,33 @@ func TestExecRunnerCapturesStartErrorInOutput(t *testing.T) {
 	}
 }
 
+func TestExecRunnerDoesNotFallBackToDaemonPATHWhenSnapshotPATHMisses(t *testing.T) {
+	t.Setenv("PATH", "/usr/bin:/bin")
+
+	var sb strBuf
+	code, err := ExecRunner{}.Run(t.Context(), eon.Job{
+		Command: []string{"sh", "-c", "echo should-not-run"},
+		Env:     []string{"PATH=/definitely/not/a/real/eon/path"},
+	}, &sb)
+	if err == nil {
+		t.Fatalf("Run unexpectedly succeeded with exit code %d and output %q", code, sb.String())
+	}
+	if code != -1 {
+		t.Fatalf("exit code = %d, want -1 for start failure", code)
+	}
+	if !strings.Contains(sb.String(), "failed to start") {
+		t.Fatalf("captured output missing start failure: %q", sb.String())
+	}
+}
+
 func TestSchedulerRecordsRunDespiteCancel(t *testing.T) {
 	// A long-running job is started, then the daemon ctx is cancelled
-	// (simulating SIGTERM). The runner returns once the child is
-	// killed, and the recording phase MUST still produce a runs row
-	// — otherwise the audit trail loses every in-flight job at
-	// shutdown. The write goes through writeCtx (context.WithoutCancel
-	// + timeout) so it survives the parent cancellation.
+	// to simulate SIGTERM.
+	//
+	// The runner returns once the child is killed.
+	// Recording must still produce a runs row.
+	// Otherwise shutdown loses the audit trail for in-flight jobs.
+	// The write uses writeCtx so it survives parent cancellation.
 	st := newStore(t)
 	now := time.Now()
 	gate := make(chan struct{})

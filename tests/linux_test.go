@@ -10,18 +10,16 @@ import (
 )
 
 // TestLinuxE2E builds eon for the host and exercises the full
-// user-visible surface natively on Linux. Mirrors TestDarwinE2E but
-// runs against Linux's exec/flock/signaling.
+// user-visible surface natively on Linux, including Linux's
+// exec/flock/signaling behavior.
 func TestLinuxE2E(t *testing.T) {
 	requireGOOS(t, "linux")
 	runE2E(t)
 }
 
-// TestLinuxInstallWritesUnit verifies the systemd --user unit lands
-// in the canonical XDG_CONFIG_HOME directory. We don't invoke
-// `systemctl --user daemon-reload` (no guarantee CI has a user dbus
-// session), so the test asserts the discovery path that
-// IsSupervised() relies on.
+// TestLinuxInstallWritesUnit verifies the systemd --user unit discovery path.
+// We don't invoke systemctl --user daemon-reload because CI may not have a
+// user dbus session, so the test asserts the file path IsSupervised relies on.
 func TestLinuxInstallWritesUnit(t *testing.T) {
 	requireGOOS(t, "linux")
 

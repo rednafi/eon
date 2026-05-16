@@ -21,18 +21,19 @@ func writeJSON(w io.Writer, v any) error {
 	return enc.Encode(v)
 }
 
-// nameColMax caps the NAME column in the ls table. Default names
-// derived from long shell commands would otherwise blow out the
-// alignment; the full text is still queryable via `eon show` and
-// `eon ls --json`.
+// nameColMax caps the NAME column in the ls table.
+//
+// Long default names would blow out alignment.
+// Full names remain available through show and JSON output.
 const nameColMax = 32
 
-// writeJobsTable formats jobs as a tab-aligned table. Times are
-// rendered in the local timezone; ID and Kind columns stay narrow.
+// writeJobsTable formats jobs as a tab-aligned table.
 //
-// Columns: STATUS is the *job* state (enabled/disabled/done);
-// RESULT is the *last run* state (ok/fail/skipped_overlap). LAST
-// RUN is the timestamp of that last run.
+// Table choices:
+//   - Times render in the local timezone.
+//   - ID and Kind stay narrow.
+//   - STATUS is enabled, disabled, or done.
+//   - RESULT is ok, fail, or skipped_overlap.
 func writeJobsTable(w io.Writer, jobs []eon.Job) {
 	tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
 	fmt.Fprintln(tw, "ID\tKIND\tNAME\tSCHEDULE\tSTATUS\tLAST RUN\tRESULT")
@@ -47,7 +48,7 @@ func writeJobsTable(w io.Writer, jobs []eon.Job) {
 
 // truncate clamps s to at most max runes, using a trailing ellipsis
 // when it overflows. Operates on runes so multi-byte characters
-// (CJK, emoji) don't get sliced mid-character.
+// don't get sliced mid-character.
 func truncate(s string, max int) string {
 	r := []rune(s)
 	if len(r) <= max {

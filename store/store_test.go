@@ -61,9 +61,11 @@ func TestStoreJobRoundtrip(t *testing.T) {
 	}
 }
 
-// TestStoreListJobsOrder pins the "ls is reverse-chronological by
-// creation" invariant. ID-order is meaningless with random IDs;
-// users expect the most-recently-added job at the top.
+// TestStoreListJobsOrder pins list ordering.
+//
+// Jobs should sort reverse-chronologically by creation time.
+// ID order is meaningless because IDs are random.
+// Users expect the most-recently-added job at the top.
 func TestStoreListJobsOrder(t *testing.T) {
 	r := newStore(t)
 	ctx := t.Context()
@@ -198,9 +200,10 @@ func TestStoreGCEnforcesRetention(t *testing.T) {
 	// Force a tight retention so we can exercise both axes.
 	const perJob = 3
 
-	// Five runs across two days; the GC should keep the 3 most recent
-	// AND prune anything older than RetentionMaxAge (the oldest is
-	// fine for that axis since it is still within 100 days).
+	// Five runs across two days.
+	// GC should keep the 3 most recent.
+	// The oldest run is still within 100 days.
+	// That isolates the per-job axis.
 	starts := []time.Time{
 		now.Add(-4 * time.Hour),
 		now.Add(-3 * time.Hour),
@@ -231,9 +234,9 @@ func TestStoreGCEnforcesGlobalCap(t *testing.T) {
 	ctx := t.Context()
 	now := mustTime(t, "2026-05-13T10:00:00Z")
 
-	// Two jobs, three runs each, spaced so global ordering by
-	// started_at is unambiguous. With perJob=10 and maxAge huge,
-	// only the global cap should trim. Cap of 4 → drop the 2 oldest.
+	// Two jobs, three runs each, spaced so global ordering by started_at
+	// is unambiguous. With perJob=10 and maxAge huge, only the global cap
+	// should trim. Cap of 4 drops the 2 oldest.
 	jobA, err := r.AddJob(ctx, eon.JobSpec{Name: "a", Command: []string{"x"}, Cron: "@hourly"}, now)
 	if err != nil {
 		t.Fatal(err)
@@ -270,7 +273,8 @@ func TestStoreGCEnforcesGlobalCap(t *testing.T) {
 	if total != 4 {
 		t.Fatalf("after GC: %d runs total, want 4", total)
 	}
-	// The two oldest were a@-6m and b@-5m; both should be gone.
+	// The two oldest were a@-6m and b@-5m.
+	// Both should be gone.
 	for _, r := range runsA {
 		if !r.StartedAt.After(now.Add(-5 * time.Minute)) {
 			t.Errorf("jobA run at %v survived global cap", r.StartedAt)
@@ -280,6 +284,36 @@ func TestStoreGCEnforcesGlobalCap(t *testing.T) {
 		if !r.StartedAt.After(now.Add(-5 * time.Minute)) {
 			t.Errorf("jobB run at %v survived global cap", r.StartedAt)
 		}
+	}
+}
+
+func TestStoreGCKeepsNewestRunsWhenTimestampsTie(t *testing.T) {
+	r := newStore(t)
+	ctx := t.Context()
+	now := mustTime(t, "2026-05-13T10:00:00Z")
+
+	job, err := r.AddJob(ctx, eon.JobSpec{Name: "ties", Command: []string{"x"}, Cron: "@hourly"}, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for range 5 {
+		if _, err := r.RecordRun(ctx, job.ID, now, now.Add(time.Second), 0, eon.RunOK, nil); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	if err := r.GC(ctx, now, 2, RetentionMaxAge, 0); err != nil {
+		t.Fatalf("GC: %v", err)
+	}
+	runs, err := r.ListRuns(ctx, job.ID, 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(runs) != 2 {
+		t.Fatalf("after GC: %d runs, want 2; runs=%+v", len(runs), runs)
+	}
+	if runs[0].ID != 5 || runs[1].ID != 4 {
+		t.Fatalf("kept run IDs = [%d %d], want newest tie-break IDs [5 4]", runs[0].ID, runs[1].ID)
 	}
 }
 
@@ -318,11 +352,40 @@ func TestStoreListRunsSince(t *testing.T) {
 	}
 }
 
-// Stale-run heal isn't needed any more — the scheduler only records
-// a row via RecordRun, after the runner has finished, so a crashed
-// daemon leaves nothing behind. The invariant we DO check: a crashed
-// daemon's lost work is simply absent from the run history, never
-// half-written.
+func TestStoreListRunsAfter(t *testing.T) {
+	r := newStore(t)
+	ctx := t.Context()
+	now := mustTime(t, "2026-05-13T10:00:00Z")
+
+	job, err := r.AddJob(ctx, eon.JobSpec{Name: "c", Command: []string{"x"}, Cron: "@hourly"}, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	first, err := r.RecordRun(ctx, job.ID, now, now.Add(time.Second), 0, eon.RunOK, []byte("one\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := r.RecordRun(ctx, job.ID, now.Add(time.Second), now.Add(2*time.Second), 0, eon.RunOK, []byte("two\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	third, err := r.RecordRun(ctx, job.ID, now.Add(2*time.Second), now.Add(3*time.Second), 0, eon.RunOK, []byte("three\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	runs, err := r.ListRunsAfter(ctx, job.ID, first.ID)
+	if err != nil {
+		t.Fatalf("ListRunsAfter: %v", err)
+	}
+	if len(runs) != 2 || runs[0].ID != second.ID || runs[1].ID != third.ID {
+		t.Fatalf("ListRunsAfter IDs = %+v, want [%d %d]", runs, second.ID, third.ID)
+	}
+}
+
+// Stale-run heal isn't needed: the scheduler only records a row via
+// RecordRun after the runner has finished. A crashed daemon's lost work is
+// absent from history, never half-written.
 func TestStoreNoHalfWrittenRunsOnCrash(t *testing.T) {
 	r := newStore(t)
 	ctx := t.Context()
@@ -339,7 +402,6 @@ func TestStoreNoHalfWrittenRunsOnCrash(t *testing.T) {
 	}
 
 	// Simulate a crash by NOT recording the second run.
-	// The history must contain exactly one row, never a half-written one.
 	runs, err := r.ListRuns(ctx, job.ID, 10)
 	if err != nil {
 		t.Fatal(err)
@@ -377,11 +439,9 @@ func TestStoreCounts(t *testing.T) {
 	}
 }
 
-// TestRepoNextFireAtInvariant pins the store-side contract the
-// scheduler relies on: AddJob writes next_fire_at, SetJobStatus(done)
-// zeros it, and AdvanceNextFire is reflected in DueJobs and
-// SoonestDeadline lookups. If any of these silently regress the
-// scheduler would either stop firing or fire too often.
+// TestStoreNextFireAtInvariant pins the store-side contract the scheduler
+// relies on: AddJob writes next_fire_at, SetJobStatus(done) zeros it, and
+// AdvanceNextFire is reflected in DueJobs and SoonestDeadline lookups.
 func TestStoreNextFireAtInvariant(t *testing.T) {
 	r := newStore(t)
 	ctx := t.Context()
@@ -411,7 +471,7 @@ func TestStoreNextFireAtInvariant(t *testing.T) {
 		t.Fatalf("oneshot next_fire_at = %v, want %v", one.NextFireAt, now.Add(time.Hour))
 	}
 
-	// DueJobs at now sees nothing (both deadlines are future).
+	// DueJobs at now sees nothing because both deadlines are future.
 	due, err := r.DueJobs(ctx, now)
 	if err != nil {
 		t.Fatal(err)
@@ -420,7 +480,7 @@ func TestStoreNextFireAtInvariant(t *testing.T) {
 		t.Fatalf("DueJobs(now) returned %d, want 0", len(due))
 	}
 
-	// SoonestDeadline returns the cron job's deadline (sooner).
+	// SoonestDeadline returns the cron job's deadline because it is sooner.
 	soonest, err := r.SoonestDeadline(ctx, now)
 	if err != nil {
 		t.Fatal(err)
@@ -429,7 +489,7 @@ func TestStoreNextFireAtInvariant(t *testing.T) {
 		t.Fatalf("SoonestDeadline = %v, want %v", soonest, cron.NextFireAt)
 	}
 
-	// Advancing past 'now+2h' moves both deadlines out of view.
+	// Advancing past now+2h moves both deadlines out of view.
 	if err := r.AdvanceNextFire(ctx, cron.ID, now.Add(2*time.Hour)); err != nil {
 		t.Fatal(err)
 	}
@@ -453,17 +513,16 @@ func TestStoreNextFireAtInvariant(t *testing.T) {
 		t.Fatalf("done job retained next_fire_at = %v, want zero", got.NextFireAt)
 	}
 
-	// SoonestDeadline now skips it (status filter + the cron is still
-	// out at +2h, which is past now).
+	// SoonestDeadline now skips the done one-shot and sees the cron at +2h.
 	soonest, _ = r.SoonestDeadline(ctx, now)
 	if !soonest.Equal(now.Add(2 * time.Hour)) {
 		t.Fatalf("SoonestDeadline after done = %v, want %v", soonest, now.Add(2*time.Hour))
 	}
 }
 
-// TestRepoDueJobsRespectsStatus ensures disabled rows never surface
-// in DueJobs even when next_fire_at is in the past. Otherwise the
-// scheduler would fire a job the user just disabled.
+// TestStoreDueJobsRespectsStatus ensures disabled rows never surface in
+// DueJobs even when next_fire_at is in the past. Otherwise the scheduler
+// would fire a job the user just disabled.
 func TestStoreDueJobsRespectsStatus(t *testing.T) {
 	r := newStore(t)
 	ctx := t.Context()
@@ -483,8 +542,8 @@ func TestStoreDueJobsRespectsStatus(t *testing.T) {
 	if len(due) != 1 {
 		t.Fatalf("due before disable: %d, want 1", len(due))
 	}
-	// Disable; it must drop out of DueJobs even though next_fire_at
-	// remains in the past.
+	// Disable the job.
+	// It must drop out of DueJobs even with past next_fire_at.
 	if err := r.SetJobStatus(ctx, j.ID, eon.StatusDisabled, now); err != nil {
 		t.Fatal(err)
 	}

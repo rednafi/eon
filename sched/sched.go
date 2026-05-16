@@ -1,12 +1,10 @@
-// Package sched is the scheduler loop. On each wake it asks the
-// store "what's due now?", fires them, then sleeps until the soonest
-// next_fire_at — that deadline comes from a SQL index lookup, not
-// from any in-memory cache. SIGHUP-driven Wake() breaks the sleep
-// early when a CLI mutation might have produced a sooner deadline.
+// Package sched is the scheduler loop.
 //
-// There is no heap, no control channel, no reload protocol, no
-// in-memory schedule. The database is the schedule. The scheduler is
-// a pump.
+// Core model:
+//   - The database is the schedule.
+//   - There is no in-memory heap.
+//   - There is no reload protocol.
+//   - Wake interrupts sleep after CLI mutations.
 package sched
 
 import (
@@ -21,9 +19,8 @@ import (
 	"golang.org/x/sync/semaphore"
 )
 
-// errRecordTimedOut is the cause attached to writeCtx when the
-// per-run recording phase exceeds [Config.RecordTimeout]; surfaces
-// via context.Cause(writeCtx) in warn-level logs.
+// errRecordTimedOut is the cause used when run recording exceeds
+// Config.RecordTimeout.
 var errRecordTimedOut = errors.New("scheduler: record-run timeout")
 
 // Config customises a [Scheduler]. Zero values are filled in by [New].
@@ -33,17 +30,15 @@ type Config struct {
 	// frees up. Default: 100.
 	MaxConcurrent int
 
-	// MaxSleep bounds the longest interval the scheduler will sleep
-	// without re-querying the store. A very long sleep is safe — the
-	// schedule lives in SQL and Wake() interrupts on mutations — but
-	// a defensive ceiling guards against the (impossible-on-paper)
-	// case of a missed signal on a long-idle daemon. Default: 1 hour.
+	// MaxSleep bounds the longest sleep between store checks.
+	// Wake interrupts this after CLI mutations.
+	// Default: 1 hour.
 	MaxSleep time.Duration
 
 	// GCInterval is the cadence at which the scheduler re-runs
-	// [store.Store.GC] to trim run history (RetentionPerJob and
-	// RetentionMaxAge). Default: 1 hour. The first pass runs at
-	// startup; the ticker drives every subsequent pass.
+	// store.Store.GC to trim run history.
+	// First pass runs at startup.
+	// Default: 1 hour.
 	GCInterval time.Duration
 
 	// JobGracePeriod is how long a child process is given to exit
@@ -51,11 +46,10 @@ type Config struct {
 	// escalates to SIGKILL. Default: 5 seconds.
 	JobGracePeriod time.Duration
 
-	// RecordTimeout bounds the per-run DB-write phase (RecordRun,
-	// MarkJobRan, SetJobStatus). The write runs under a context
-	// detached from the parent so a shutdown-killed run still gets
-	// persisted; this bound prevents a stuck SQLite connection from
-	// blocking worker drain forever. Default: 5 seconds.
+	// RecordTimeout bounds the per-run DB-write phase.
+	// Recording is detached from shutdown cancellation.
+	// This keeps killed runs in the audit trail.
+	// Default: 5 seconds.
 	RecordTimeout time.Duration
 
 	// Now provides the current time. Override for deterministic tests.
@@ -64,16 +58,16 @@ type Config struct {
 	// Runner executes individual jobs. Default: [ExecRunner].
 	Runner Runner
 
-	// Logger is used for warnings and one-line lifecycle events.
-	// nil ⇒ slog.Default().
+	// Logger is used for warnings. nil uses slog.Default().
 	Logger *slog.Logger
 }
 
-// Scheduler drives the scheduler loop. Build one with [New], drive
-// it with [Scheduler.Start]. To shut it down, cancel the context you
-// passed to Start — that is the only stop signal. [Scheduler.Wake]
-// can be called from any goroutine to interrupt the current sleep
-// early when a write may have produced a sooner deadline.
+// Scheduler drives the scheduler loop.
+//
+// Lifecycle:
+//   - Start blocks until its context is cancelled.
+//   - Cancelling that context is the stop signal.
+//   - Wake can be called from any goroutine.
 type Scheduler struct {
 	store *store.Store
 	cfg   Config
@@ -119,11 +113,9 @@ func New(st *store.Store, cfg Config) *Scheduler {
 	}
 }
 
-// Wake interrupts the current sleep so the scheduler re-queries the
-// store on the next iteration. Use it after a write that might have
-// produced a sooner deadline than what the scheduler is currently
-// sleeping on. Non-blocking; if a wake is already pending, the call
-// collapses into it.
+// Wake interrupts the current sleep.
+// Use it after a write that may have produced a sooner deadline.
+// Non-blocking. Multiple wakeups collapse into one pending signal.
 func (s *Scheduler) Wake() {
 	select {
 	case s.wake <- struct{}{}:
@@ -131,14 +123,10 @@ func (s *Scheduler) Wake() {
 	}
 }
 
-// Start runs the scheduler loop until ctx is cancelled. Blocks;
-// callers typically invoke it in its own goroutine. The deferred
-// wg.Wait() drains in-flight runners and the GC goroutine before
-// Start returns ctx.Err().
+// Start runs until ctx is cancelled.
+// It drains in-flight runners before returning ctx.Err().
 //
-// A retention GC pass runs at startup and then on every
-// [Config.GCInterval] tick, so long-lived daemons don't grow
-// run history unbounded.
+// GC runs at startup and then on every Config.GCInterval tick.
 func (s *Scheduler) Start(ctx context.Context) error {
 	defer s.wg.Wait()
 	s.wg.Go(func() { s.gcLoop(ctx) })
@@ -159,15 +147,23 @@ func (s *Scheduler) Start(ctx context.Context) error {
 	}
 }
 
-// fire advances next_fire_at, then either records an overlap (if the
-// previous run for this job is still in flight) or spawns a worker
-// goroutine. next_fire_at is advanced *before* the runner starts so
-// a crashed daemon does not replay this fire on restart.
+// fire claims the deadline before execution.
+//
+// This matters because:
+//   - A slow run must not be started twice.
+//   - A crashed daemon must not replay this fire on restart.
+//   - Recurring overlaps are recorded instead of double-fired.
 func (s *Scheduler) fire(ctx context.Context, now time.Time, job eon.Job) {
 	next := eon.NextFire(job, now)
+	if job.Kind == eon.KindOneshot {
+		next = time.Time{}
+	}
+	// Claim the deadline before exec so a slow run cannot be started twice.
 	s.warnJob("advance next_fire_at", job.ID, s.store.AdvanceNextFire(ctx, job.ID, next))
 
 	if !s.running.reserve(job.ID) {
+		// One-shots are already claimed above.
+		// This path should only describe recurring overlap.
 		s.warnJob("record overlap", job.ID, s.store.RecordOverlap(ctx, job.ID, job.NextFireAt))
 		return
 	}
@@ -177,9 +173,8 @@ func (s *Scheduler) fire(ctx context.Context, now time.Time, job eon.Job) {
 	})
 }
 
-// sleep blocks until the soonest scheduled fire, capped by MaxSleep,
-// or until a wake or ctx cancellation interrupts. ctx cancellation
-// is detected by the loop on the next iteration via ctx.Err().
+// sleep blocks until a deadline, Wake, or cancellation.
+// The loop observes cancellation on the next ctx.Err check.
 func (s *Scheduler) sleep(ctx context.Context, now time.Time) {
 	timer := time.NewTimer(s.nextSleep(ctx, now))
 	defer timer.Stop()
@@ -191,15 +186,16 @@ func (s *Scheduler) sleep(ctx context.Context, now time.Time) {
 }
 
 // nextSleep returns how long to sleep before re-checking the store.
-// Clamped to [1ms, MaxSleep]: zero or negative would busy-spin, and
-// the upper bound is a safety net against a hypothetical lost wake
-// on a long-idle daemon.
+//
+// Bounds:
+//   - At least 1ms, to avoid busy-spins.
+//   - At most MaxSleep, as a safety net for long-idle daemons.
 func (s *Scheduler) nextSleep(ctx context.Context, now time.Time) time.Duration {
 	soonest, err := s.store.SoonestDeadline(ctx, now)
 	s.warn("soonest", err)
 	d := s.cfg.MaxSleep
 	if !soonest.IsZero() {
-		if until := time.Until(soonest); until < d {
+		if until := soonest.Sub(now); until < d {
 			d = until
 		}
 	}
@@ -209,10 +205,9 @@ func (s *Scheduler) nextSleep(ctx context.Context, now time.Time) time.Duration 
 	return d
 }
 
-// runJob is the worker goroutine. It acquires the concurrency
-// semaphore, executes the job, and records the run. next_fire_at was
-// already advanced by [Scheduler.fire] before this goroutine started,
-// so a crash mid-run does not replay the fire on restart.
+// runJob executes one claimed job.
+// next_fire_at was already advanced by fire.
+// A mid-run crash does not replay the fire on restart.
 func (s *Scheduler) runJob(ctx context.Context, job eon.Job) {
 	if err := s.sem.Acquire(ctx, 1); err != nil {
 		return // ctx cancelled while queued
@@ -229,9 +224,9 @@ func (s *Scheduler) runJob(ctx context.Context, job eon.Job) {
 	}
 	finishedAt := s.cfg.Now()
 
-	// Detach the recording phase from the parent so a SIGTERM-driven
-	// shutdown still produces an audit row for the killed run; bound
-	// it so a stuck SQLite write cannot block worker drain.
+	// Detach recording from the parent context.
+	// Shutdown-killed jobs still need an audit row.
+	// The timeout prevents a stuck SQLite write from blocking drain.
 	writeCtx, cancel := context.WithTimeoutCause(
 		context.WithoutCancel(ctx), s.cfg.RecordTimeout, errRecordTimedOut)
 	defer cancel()

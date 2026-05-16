@@ -18,20 +18,22 @@ var cronParser = cron.NewParser(
 		cron.Descriptor,
 )
 
-// cronCache memoises ParseCron results. cron.Schedule is immutable and
-// the hot path (scheduler firing @every 1s jobs) would otherwise
-// re-parse the same expression once per second. Bounded in practice
-// by the number of distinct cron expressions in the database.
+// cronCache memoises ParseCron results.
+//
+// cron.Schedule is immutable.
+// The scheduler can hit this once per second for @every 1s jobs.
+// The cache is bounded by distinct cron expressions in the database.
 var cronCache sync.Map // map[string]cron.Schedule
 
-// ParseCron validates a cron expression and returns a [cron.Schedule]
-// that can compute next-fire times. Returns [ErrInvalidCron] wrapped
-// with the underlying parser message.
+// ParseCron validates a cron expression.
 //
-// Robfig silently rounds @every durations below one second (including
-// zero and negatives) UP to one second, which would mask user mistakes
-// like `@every 0s`. Pre-validate the duration before delegating so the
-// user actually sees their typo.
+// Important behavior:
+//   - It returns a schedule that computes next-fire times.
+//   - Parser errors wrap ErrInvalidCron.
+//   - @every durations must be positive.
+//
+// robfig/cron rounds sub-second @every values up to one second.
+// Pre-validation keeps `@every 0s` visible as a user error.
 func ParseCron(expr string) (cron.Schedule, error) {
 	expr = strings.TrimSpace(expr)
 	if expr == "" {
@@ -87,7 +89,7 @@ func ParseAt(spec string, now time.Time) (time.Time, error) {
 }
 
 func parseAtRaw(raw string, now time.Time) (time.Time, error) {
-	// RFC3339 (and the looser variants Go accepts).
+	// RFC3339 and the looser variants Go accepts.
 	if t, err := time.Parse(time.RFC3339, raw); err == nil {
 		return t, nil
 	}
@@ -102,15 +104,16 @@ func parseAtRaw(raw string, now time.Time) (time.Time, error) {
 	case strings.HasPrefix(lower, "today "):
 		return parseClock(lower[len("today "):], now, 0)
 	case strings.HasPrefix(lower, "tomorrow "):
-		return parseClock(lower[len("tomorrow "):], now, 24*time.Hour)
+		return parseClock(lower[len("tomorrow "):], now, 1)
 	}
 
 	return time.Time{}, fmt.Errorf("%w: %q", ErrInvalidTime, raw)
 }
 
-// parseOffset handles "+30m"/"+2h"/"+3d"/"+1h30m". time.ParseDuration
-// handles every unit except "d"; we promote whole days to hours
-// before delegating.
+// parseOffset handles "+30m", "+2h", "+3d", and "+1h30m".
+//
+// time.ParseDuration does not handle "d".
+// Whole days are promoted to hours before delegating.
 func parseOffset(s string, now time.Time) (time.Time, error) {
 	if rest, ok := strings.CutSuffix(s, "d"); ok {
 		n, err := strconv.Atoi(rest)
@@ -134,13 +137,13 @@ func parseOffset(s string, now time.Time) (time.Time, error) {
 
 // parseClock accepts "17:00", "5:30pm", "9am" and applies them to the
 // day anchored on (now + dayOffset), preserving now's location.
-func parseClock(s string, now time.Time, dayOffset time.Duration) (time.Time, error) {
+func parseClock(s string, now time.Time, dayOffsetDays int) (time.Time, error) {
 	s = strings.TrimSpace(s)
 	hour, min, err := parseHourMinute(s)
 	if err != nil {
 		return time.Time{}, err
 	}
-	anchor := now.Add(dayOffset)
+	anchor := now.AddDate(0, 0, dayOffsetDays)
 	y, m, d := anchor.Date()
 	return time.Date(y, m, d, hour, min, 0, 0, now.Location()), nil
 }
@@ -190,11 +193,12 @@ func parseHourMinute(s string) (hour, minute int, err error) {
 // NextFire returns the next time the given spec should fire after now.
 //
 // One-shot jobs:
-//   - Status == StatusDone   → zero time (already ran).
-//   - FireAt > now           → FireAt.
-//   - FireAt <= now (missed) → now (fire immediately on next tick;
-//     the daemon was down through the scheduled time, so we run as
-//     soon as it comes back).
+//   - Status == StatusDone: zero time (already ran).
+//   - FireAt > now: FireAt.
+//   - FireAt <= now: now.
+//
+// Past-due one-shots fire on the next tick.
+// That handles the daemon being down at the scheduled time.
 //
 // Cron jobs delegate to the parsed schedule's Next.
 func NextFire(j Job, now time.Time) time.Time {

@@ -32,9 +32,10 @@ plan without touching anything. Pass --force (-f) to actually do it.`,
 	return cmd
 }
 
-// seppuku is the destructive cleanup driver. perform=false means
-// dry-run — every "would …" message represents an action the
-// performing path would take.
+// seppuku is the destructive cleanup driver.
+//
+// perform=false means dry-run.
+// Each "would ..." message mirrors a real action.
 func seppuku(cmd *cobra.Command, perform bool) error {
 	out := cmd.OutOrStdout()
 	dir, err := dataDir()
@@ -70,11 +71,11 @@ func seppuku(cmd *cobra.Command, perform bool) error {
 		}
 	}
 
-	// Removing the running binary is fine on Unix: the kernel keeps
-	// the inode alive until this process exits, so we finish cleanly
-	// and the file is gone the next time something looks for it.
 	if perform {
 		fmt.Fprintf(out, "removing binary %s\n", bin)
+		// Removing the running binary is fine on Unix: the kernel keeps
+		// the inode alive until this process exits, so we finish cleanly
+		// and the file is gone the next time something looks for it.
 		if err := os.Remove(bin); err != nil && !errors.Is(err, os.ErrNotExist) {
 			return fmt.Errorf("remove binary: %w", err)
 		}
@@ -91,8 +92,10 @@ func seppuku(cmd *cobra.Command, perform bool) error {
 	return nil
 }
 
-// stopDaemon mirrors `eon stop` but stays silent when no daemon is
-// running (seppuku's caller doesn't care about that line).
+// stopDaemon mirrors `eon stop`.
+//
+// It stays silent when no daemon is running.
+// seppuku does not need that line.
 func stopDaemon(out io.Writer, dir string, perform bool) {
 	pid, _, running, _ := daemon.ProbeRunLock(dir)
 	if !running {

@@ -22,11 +22,13 @@ type Runner interface {
 	Run(ctx context.Context, job eon.Job, out io.Writer) (exitCode int, err error)
 }
 
-// ExecRunner is the production [Runner]: shells out via os/exec and
-// streams merged stdout+stderr into out. When GracePeriod > 0 the
-// runner sends SIGTERM to the child on context cancellation and lets
-// the os/exec runtime escalate to SIGKILL after GracePeriod elapses;
-// a zero value falls back to Go's default (immediate SIGKILL).
+// ExecRunner is the production [Runner].
+//
+// Behavior:
+//   - It shells out via os/exec.
+//   - It streams merged stdout and stderr into out.
+//   - GracePeriod > 0 sends SIGTERM before Go escalates to SIGKILL.
+//   - GracePeriod == 0 uses Go's default immediate SIGKILL.
 type ExecRunner struct {
 	GracePeriod time.Duration
 }
@@ -39,46 +41,54 @@ func (e ExecRunner) Run(ctx context.Context, job eon.Job, out io.Writer) (int, e
 	cmd.Stdout = out
 	cmd.Stderr = out
 	if e.GracePeriod > 0 {
-		// Send SIGTERM on cancellation so the child can run cleanup;
-		// the os/exec runtime then waits up to WaitDelay before
-		// closing pipes and force-killing. With WaitDelay unset, a
-		// child that traps SIGTERM and never exits would hang Wait
-		// indefinitely.
+		// Send SIGTERM on cancellation so the child can run cleanup.
+		//
+		// WaitDelay is still required.
+		// A child can trap SIGTERM and never exit.
+		// In that case WaitDelay lets os/exec force-kill it.
 		cmd.Cancel = func() error { return cmd.Process.Signal(syscall.SIGTERM) }
 		cmd.WaitDelay = e.GracePeriod
 	}
 	if len(job.Env) > 0 {
-		// Use the snapshot from `eon add` time so the child sees the
-		// user's PATH (and the rest of their shell env), bypassing the
-		// minimal env that launchd/systemd hands the daemon.
 		cmd.Env = job.Env
-		// CommandContext already resolved cmd.Path against the
-		// daemon's PATH at construction time; redo the lookup against
-		// the snapshot's PATH so we exec the binary the user expects.
+		// Use the env snapshot from `eon add` time.
+		//
+		// This gives the child the user's PATH and shell variables.
+		// It avoids the minimal env from launchd or systemd.
+		//
+		// CommandContext already resolved cmd.Path once.
+		// Redo the lookup against the snapshot PATH.
+		// That execs the binary the user expected at `eon add` time.
 		if resolved, err := lookPathIn(job.Command[0], envPath(job.Env)); err == nil {
 			cmd.Path = resolved
 			cmd.Err = nil
+		} else if !strings.ContainsRune(job.Command[0], os.PathSeparator) {
+			cmd.Path = job.Command[0]
+			cmd.Err = err
 		}
 	}
 	err := cmd.Run()
 	if cmd.ProcessState != nil {
-		// The child actually ran. Report ProcessState directly rather
-		// than parsing err, because a Cancel-driven SIGTERM that the
-		// child handled cleanly produces a useful exit code here but
-		// surfaces only as a context error via err.
+		// The child actually ran.
+		//
+		// ProcessState has the useful exit code.
+		// A handled SIGTERM can still surface as a context error.
 		return cmd.ProcessState.ExitCode(), nil
 	}
-	// Process never started (binary missing, permission denied, …).
-	// The user needs to be able to find out why from `eon logs`, so
-	// persist the reason alongside any prior output.
+	// The process never started.
+	//
+	// Persist the reason so `eon logs` can show it.
 	_, _ = fmt.Fprintf(out, "eon: failed to start: %v\n", err)
 	return -1, err
 }
 
-// envPath returns the PATH value from a `KEY=VALUE` slice, or "" if
-// PATH isn't present. The first match wins, which matches POSIX
-// "earlier definitions take precedence" behaviour for environments
-// passed to exec.
+// envPath returns PATH from a `KEY=VALUE` slice.
+//
+// Behavior:
+//   - It returns "" when PATH is absent.
+//   - The first match wins.
+//
+// The first-match rule matches environments passed to exec.
 func envPath(env []string) string {
 	for _, kv := range env {
 		if v, ok := strings.CutPrefix(kv, "PATH="); ok {
@@ -88,13 +98,15 @@ func envPath(env []string) string {
 	return ""
 }
 
-// lookPathIn is exec.LookPath with the search path supplied
-// explicitly instead of read from os.Getenv("PATH"). Needed because
-// the daemon's own PATH is the launchd/systemd minimal one, but jobs
-// run with whatever PATH was snapshotted at `eon add` time.
+// lookPathIn is exec.LookPath with an explicit search path.
+//
+// Needed because:
+//   - The daemon's PATH can come from launchd or systemd.
+//   - Jobs should use the PATH snapshotted at `eon add` time.
 func lookPathIn(name, path string) (string, error) {
 	if strings.ContainsRune(name, os.PathSeparator) {
-		// Already a path; let the OS resolve it at exec time.
+		// Already a path.
+		// Let the OS resolve it at exec time.
 		return name, nil
 	}
 	if path == "" {

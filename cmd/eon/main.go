@@ -1,10 +1,11 @@
-// Command eon is the CLI and daemon for the eon job scheduler. The
-// same binary serves both roles: invoked with `add`/`ls`/`rm`/... it
-// acts as a client that mutates the local SQLite store; invoked by
-// launchd/systemd (via `eon install`) it runs the in-process
-// scheduler scheduler until SIGTERM. The daemon subcommand is hidden
-// from the user-facing help because the supervisor unit is the
-// supported entrypoint.
+// Command eon is the CLI and daemon for the eon job scheduler.
+//
+// The same binary serves both roles:
+//   - User commands mutate the local SQLite store.
+//   - The supervisor runs the hidden daemon command.
+//
+// The daemon command is hidden from help.
+// The supported entrypoint is `eon install`.
 package main
 
 import (
@@ -30,10 +31,10 @@ func main() {
 
 	root := newRoot()
 
-	// AnsiColorScheme leaves the actual hues up to the user's terminal
-	// palette, so help/error text stays legible on both dark and light
-	// backgrounds — the default scheme uses fixed lipgloss colors that
-	// look dim on dark mode.
+	// AnsiColorScheme uses the user's terminal palette.
+	//
+	// That keeps help and error text legible on dark and light themes.
+	// Fang's default colors can look dim on dark mode.
 	if err := fang.Execute(ctx, root, fangOptions()...); err != nil {
 		os.Exit(exitCode(err))
 	}
