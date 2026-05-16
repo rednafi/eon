@@ -40,10 +40,6 @@ Linux (curl):
 curl -fsSL https://raw.githubusercontent.com/rednafi/eon/main/install.sh | sh
 ```
 
-The script detects amd64/arm64, resolves the latest GitHub release, verifies the SHA-256
-sum, and installs to `/usr/local/bin/eon`. Override with `EON_PREFIX` or pin a release
-with `EON_VERSION`.
-
 From source:
 
 ```sh
