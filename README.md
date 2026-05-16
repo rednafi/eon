@@ -1,6 +1,10 @@
 # eon
 
-A tiny job scheduler. It does two things:
+A tiny job scheduler.
+
+[![eon usage demo](https://vhs.charm.sh/vhs-26bmu0ZGqnoMVO50BCfEeC.gif)](https://github.com/rednafi/eon/issues/6)
+
+It does two things:
 
 - recurring (cron-style) jobs
 - one-shot jobs at a wall-clock time
@@ -27,22 +31,18 @@ that behaves the same on macOS and Linux.
 
 ### Install
 
-macOS (Homebrew):
+macOS:
 
 ```sh
 brew tap rednafi/eon https://github.com/rednafi/eon
 brew install eon
 ```
 
-Linux (curl):
+Linux:
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/rednafi/eon/main/install.sh | sh
 ```
-
-The script detects amd64/arm64, resolves the latest GitHub release, verifies the SHA-256
-sum, and installs to `/usr/local/bin/eon`. Override with `EON_PREFIX` or pin a release
-with `EON_VERSION`.
 
 From source:
 
@@ -137,7 +137,6 @@ make tidy
 make clean
 ```
 
-### Releases
+## Releases
 
-Tagged `v*` pushes trigger a goreleaser build via `.github/workflows/release.yml`. Output is
-binaries for linux and darwin on amd64 and arm64, plus a checksums file.
+Tagged `v*` pushes trigger a goreleaser build via `.github/workflows/release.yml`.
