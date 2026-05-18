@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"strings"
 
 	"github.com/rednafi/eon"
 	"github.com/rednafi/eon/daemon"
@@ -47,6 +46,8 @@ machine-readable output on stdout. Errors and warnings go to stderr.`,
 		Example: `  eon install
   eon add --cron '@hourly' --name backup -- ./bk.sh
   eon ls --json`,
+		Args:          rootArgs,
+		RunE:          rootHelp,
 		SilenceUsage:  true,
 		SilenceErrors: true,
 	}
@@ -77,13 +78,29 @@ machine-readable output on stdout. Errors and warnings go to stderr.`,
 	return root
 }
 
+func rootArgs(cmd *cobra.Command, args []string) error {
+	if len(args) == 0 {
+		return nil
+	}
+	return fmt.Errorf("unknown command %q for %q", args[0], cmd.CommandPath())
+}
+
+func rootHelp(cmd *cobra.Command, _ []string) error {
+	return cmd.Help()
+}
+
 // tagUsageErrors wires every command (root + descendants) so flag-parse
 // and positional-arg violations propagate as errUsage-wrapped errors.
 // Without this, cobra surfaces those errors with no sentinel and the
 // exit-code mapper falls through to 1 (unexpected), but per contract
 // they are usage errors (exit 2).
 func tagUsageErrors(c *cobra.Command) {
-	c.SetFlagErrorFunc(func(_ *cobra.Command, err error) error {
+	c.SetFlagErrorFunc(func(cmd *cobra.Command, err error) error {
+		if cmd.HasSubCommands() && !cmd.HasParent() {
+			if args := cmd.Flags().Args(); len(args) > 0 && !hasSubcommand(cmd, args[0]) {
+				return fmt.Errorf("%w: unknown command %q for %q", errUsage, args[0], cmd.CommandPath())
+			}
+		}
 		return fmt.Errorf("%w: %v", errUsage, err)
 	})
 	if c.Args != nil {
@@ -98,6 +115,15 @@ func tagUsageErrors(c *cobra.Command) {
 	for _, child := range c.Commands() {
 		tagUsageErrors(child)
 	}
+}
+
+func hasSubcommand(cmd *cobra.Command, name string) bool {
+	for _, child := range cmd.Commands() {
+		if child.Name() == name || child.HasAlias(name) {
+			return true
+		}
+	}
+	return false
 }
 
 // dataDir returns the effective data directory: the --data-dir flag if
@@ -147,7 +173,7 @@ func exitCode(err error) int {
 	switch {
 	case err == nil:
 		return 0
-	case errors.Is(err, errUsage), isUnknownCommand(err):
+	case errors.Is(err, errUsage):
 		return 2
 	case errors.Is(err, eon.ErrNotFound):
 		return 3
@@ -162,14 +188,6 @@ func exitCode(err error) int {
 	default:
 		return 1
 	}
-}
-
-// isUnknownCommand recognises Cobra's untyped "unknown command" error.
-// Cobra does not export a sentinel for this case, so prefix detection
-// is the only available hook. Narrow and anchored: false positives
-// would only flow through if a future error message starts identically.
-func isUnknownCommand(err error) bool {
-	return strings.HasPrefix(err.Error(), "unknown command")
 }
 
 // errUsage is sentineled so we can map invalid-flag/arg situations to

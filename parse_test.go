@@ -16,7 +16,6 @@ func mustTime(t *testing.T, layout, value string) time.Time {
 }
 
 func TestParseAtAccepted(t *testing.T) {
-	t.Helper()
 	now := mustTime(t, time.RFC3339, "2026-05-13T10:00:00-07:00")
 	cases := []struct {
 		name string
@@ -69,7 +68,6 @@ func TestParseAtTomorrowUsesCalendarDayAcrossDSTFallback(t *testing.T) {
 }
 
 func TestParseAtRejected(t *testing.T) {
-	t.Helper()
 	now := mustTime(t, time.RFC3339, "2026-05-13T10:00:00-07:00")
 	cases := []struct {
 		name string
@@ -103,19 +101,22 @@ func TestParseAtRejected(t *testing.T) {
 }
 
 func TestParseCronAccepted(t *testing.T) {
-	t.Helper()
-	for _, expr := range []string{
-		"* * * * *",
-		"*/5 * * * *",
-		"0 9 * * 1-5",
-		"@hourly",
-		"@daily",
-		"@every 30s",
-		"@every 5m",
-	} {
-		t.Run(expr, func(t *testing.T) {
-			if _, err := ParseCron(expr); err != nil {
-				t.Fatalf("ParseCron(%q): %v", expr, err)
+	cases := []struct {
+		name string
+		expr string
+	}{
+		{name: "every_minute", expr: "* * * * *"},
+		{name: "step_minutes", expr: "*/5 * * * *"},
+		{name: "weekday_morning", expr: "0 9 * * 1-5"},
+		{name: "hourly_descriptor", expr: "@hourly"},
+		{name: "daily_descriptor", expr: "@daily"},
+		{name: "every_seconds", expr: "@every 30s"},
+		{name: "every_minutes", expr: "@every 5m"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if _, err := ParseCron(tc.expr); err != nil {
+				t.Fatalf("ParseCron(%q): %v", tc.expr, err)
 			}
 		})
 	}
@@ -132,22 +133,31 @@ func TestParseCronCachesExpression(t *testing.T) {
 }
 
 func TestParseCronRejected(t *testing.T) {
-	t.Helper()
-	for _, expr := range []string{"", "   ", "not-a-cron", "0 0 * *", "@nope", "@every nope"} {
-		t.Run(expr, func(t *testing.T) {
-			_, err := ParseCron(expr)
+	cases := []struct {
+		name string
+		expr string
+	}{
+		{name: "empty", expr: ""},
+		{name: "blank", expr: "   "},
+		{name: "not_cron", expr: "not-a-cron"},
+		{name: "too_few_fields", expr: "0 0 * *"},
+		{name: "unknown_descriptor", expr: "@nope"},
+		{name: "bad_every_duration", expr: "@every nope"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := ParseCron(tc.expr)
 			if err == nil {
-				t.Fatalf("ParseCron(%q) = no error, want one", expr)
+				t.Fatalf("ParseCron(%q) = no error, want one", tc.expr)
 			}
 			if !errors.Is(err, ErrInvalidCron) {
-				t.Errorf("ParseCron(%q) error %v: want errors.Is(ErrInvalidCron)", expr, err)
+				t.Errorf("ParseCron(%q) error %v: want errors.Is(ErrInvalidCron)", tc.expr, err)
 			}
 		})
 	}
 }
 
 func TestNextFire(t *testing.T) {
-	t.Helper()
 	now := mustTime(t, time.RFC3339, "2026-05-13T10:00:00Z")
 
 	t.Run("cron_next", func(t *testing.T) {
@@ -197,7 +207,6 @@ func TestNextFire(t *testing.T) {
 }
 
 func TestJobSpecValidate(t *testing.T) {
-	t.Helper()
 	now := mustTime(t, time.RFC3339, "2026-05-13T10:00:00Z")
 	future := now.Add(time.Hour)
 
@@ -224,9 +233,9 @@ func TestJobSpecValidate(t *testing.T) {
 			err := tc.spec.Validate(now)
 			switch {
 			case tc.wantErr == nil && err != nil:
-				t.Fatalf("Validate: %v, want nil", err)
+				t.Fatalf("JobSpec.Validate() = %v, want nil", err)
 			case tc.wantErr != nil && !errors.Is(err, tc.wantErr):
-				t.Fatalf("Validate error %v: want errors.Is(%v)", err, tc.wantErr)
+				t.Fatalf("JobSpec.Validate() error = %v, want errors.Is(%v)", err, tc.wantErr)
 			}
 		})
 	}

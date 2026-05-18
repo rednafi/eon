@@ -47,7 +47,9 @@ func (r *recRunner) Run(ctx context.Context, job eon.Job, out io.Writer) (int, e
 	r.mu.Lock()
 	r.written = append(r.written, job.Name)
 	r.mu.Unlock()
-	_, _ = io.WriteString(out, "hi from "+job.Name+"\n")
+	if _, err := io.WriteString(out, "hi from "+job.Name+"\n"); err != nil {
+		return -1, err
+	}
 	if r.wait != nil {
 		select {
 		case <-r.wait:
@@ -85,7 +87,7 @@ func TestSchedulerFiresCronJob(t *testing.T) {
 		}
 		time.Sleep(50 * time.Millisecond)
 	}
-	t.Fatalf("expected ≥2 firings within 2.5s, got %d", rr.calls.Load())
+	t.Fatalf("runner calls = %d within 2.5s, want at least 2", rr.calls.Load())
 }
 
 func TestSchedulerSkipsOverlap(t *testing.T) {
@@ -116,7 +118,7 @@ func TestSchedulerSkipsOverlap(t *testing.T) {
 	// the scheduler enough wall time to attempt at least one more
 	// firing while the first is still held by the gate.
 	if !waitFor(2*time.Second, func() bool { return rr.calls.Load() >= 1 }) {
-		t.Fatalf("first run never started")
+		t.Fatalf("runner calls = %d, want at least 1", rr.calls.Load())
 	}
 	time.Sleep(1500 * time.Millisecond)
 
@@ -131,7 +133,7 @@ func TestSchedulerSkipsOverlap(t *testing.T) {
 		}
 	}
 	if overlaps == 0 {
-		t.Fatalf("expected at least one overlap row, got runs=%+v", runs)
+		t.Fatalf("overlap rows = %d, want at least 1; runs=%+v", overlaps, runs)
 	}
 }
 
@@ -160,7 +162,7 @@ func TestSchedulerHonoursDisabled(t *testing.T) {
 
 	time.Sleep(1 * time.Second)
 	if got := rr.calls.Load(); got != 0 {
-		t.Fatalf("disabled job fired %d times", got)
+		t.Errorf("disabled job fired %d times, want 0", got)
 	}
 }
 
@@ -213,7 +215,7 @@ func TestSchedulerNextSleepUsesConfiguredClock(t *testing.T) {
 	})
 	got := s.nextSleep(t.Context(), fakeNow)
 	if got < 200*time.Millisecond || got > 300*time.Millisecond {
-		t.Fatalf("nextSleep = %v, want about 250ms from configured Now", got)
+		t.Errorf("nextSleep = %v, want about 250ms from configured Now", got)
 	}
 }
 
@@ -252,7 +254,7 @@ func TestSchedulerOneshotClaimDoesNotOverlapWhileRunning(t *testing.T) {
 	}
 	for _, run := range runs {
 		if run.Status == eon.RunSkippedOverlap {
-			t.Fatalf("oneshot recorded overlap while first run was still active: %+v", runs)
+			t.Errorf("oneshot recorded overlap while first run was still active: %+v", runs)
 		}
 	}
 
@@ -345,10 +347,10 @@ func TestExecRunnerResolvesBinaryViaSnapshotPATH(t *testing.T) {
 		t.Fatalf("Run: %v", err)
 	}
 	if code != 0 {
-		t.Fatalf("exit code = %d, want 0; stdout=%q", code, sb.String())
+		t.Errorf("exit code = %d, want 0; stdout=%q", code, sb.String())
 	}
 	if got := sb.String(); got != "from snapshot\n" {
-		t.Fatalf("stdout = %q, want %q", got, "from snapshot\n")
+		t.Errorf("Run() stdout = %q, want %q", got, "from snapshot\n")
 	}
 }
 
@@ -378,7 +380,7 @@ func TestExecRunnerHonoursSIGTERMGrace(t *testing.T) {
 		t.Fatalf("Run: %v", err)
 	}
 	if code != 7 {
-		t.Fatalf("exit code = %d, want 7 (SIGTERM trap)", code)
+		t.Errorf("exit code = %d, want 7 (SIGTERM trap)", code)
 	}
 }
 
@@ -390,10 +392,10 @@ func TestExecRunnerCapturesNonZeroExit(t *testing.T) {
 		t.Fatalf("Run: %v", err)
 	}
 	if code != 7 {
-		t.Fatalf("exit code = %d, want 7", code)
+		t.Errorf("exit code = %d, want 7", code)
 	}
 	if sb.String() != "hi\n" {
-		t.Fatalf("stdout = %q", sb.String())
+		t.Errorf("Run() stdout = %q, want %q", sb.String(), "hi\n")
 	}
 }
 
@@ -441,20 +443,20 @@ func TestSchedulerCapsLargeOutput(t *testing.T) {
 		t.Fatalf("read: %v", err)
 	}
 	if len(buf) > store.MaxOutputBytes+128 {
-		t.Fatalf("output bytes = %d, expected ≤ MaxOutputBytes(%d) + marker", len(buf), store.MaxOutputBytes)
+		t.Errorf("OpenRunLog() bytes = %d, want <= MaxOutputBytes(%d)+marker", len(buf), store.MaxOutputBytes)
 	}
 	if !bytes.Contains(buf, []byte("output truncated")) {
-		t.Fatalf("expected truncation marker, got tail %q", buf[max(0, len(buf)-64):])
+		t.Errorf("OpenRunLog() tail = %q, want truncation marker", buf[max(0, len(buf)-64):])
 	}
 }
 
 func TestExecRunnerReportsStartError(t *testing.T) {
 	_, err := ExecRunner{}.Run(t.Context(), eon.Job{Command: []string{"/no/such/binary"}}, io.Discard)
 	if err == nil {
-		t.Fatalf("expected error from missing binary")
+		t.Errorf("Run(missing binary) = nil, want error")
 	}
 	if errors.Is(err, context.Canceled) {
-		t.Fatalf("unexpected context cancel masquerading as start error")
+		t.Errorf("Run(missing binary) = %v, want non-context error", err)
 	}
 }
 
@@ -467,10 +469,10 @@ func TestExecRunnerCapturesStartErrorInOutput(t *testing.T) {
 	var sb strBuf
 	_, err := ExecRunner{}.Run(t.Context(), eon.Job{Command: []string{"echo hello"}}, &sb)
 	if err == nil {
-		t.Fatalf("expected start error for command with space in argv[0]")
+		t.Errorf("Run(command with space in argv[0]) = nil, want error")
 	}
 	if !strings.Contains(sb.String(), "failed to start") {
-		t.Fatalf("captured output missing 'failed to start': %q", sb.String())
+		t.Errorf("Run() stdout = %q, want substring %q", sb.String(), "failed to start")
 	}
 }
 
@@ -483,13 +485,13 @@ func TestExecRunnerDoesNotFallBackToDaemonPATHWhenSnapshotPATHMisses(t *testing.
 		Env:     []string{"PATH=/definitely/not/a/real/eon/path"},
 	}, &sb)
 	if err == nil {
-		t.Fatalf("Run unexpectedly succeeded with exit code %d and output %q", code, sb.String())
+		t.Errorf("Run(snapshot PATH miss) = nil, want error; exit code=%d stdout=%q", code, sb.String())
 	}
 	if code != -1 {
-		t.Fatalf("exit code = %d, want -1 for start failure", code)
+		t.Errorf("exit code = %d, want -1 for start failure", code)
 	}
 	if !strings.Contains(sb.String(), "failed to start") {
-		t.Fatalf("captured output missing start failure: %q", sb.String())
+		t.Errorf("Run() stdout = %q, want substring %q", sb.String(), "failed to start")
 	}
 }
 
@@ -537,7 +539,7 @@ func TestSchedulerRecordsRunDespiteCancel(t *testing.T) {
 		t.Fatalf("ListRuns: %v", err)
 	}
 	if len(runs) == 0 {
-		t.Fatal("no runs row recorded; cancellation lost the audit trail")
+		t.Error("no runs row recorded; cancellation lost the audit trail")
 	}
 }
 
@@ -578,7 +580,7 @@ func TestSchedulerGCRunsPeriodically(t *testing.T) {
 		return err == nil && len(runs) == 0
 	})
 	if !ok {
-		t.Fatal("periodic GC did not remove stale run within deadline")
+		t.Error("periodic GC did not remove stale run within deadline")
 	}
 
 	cancel(errTestCtxEnded)

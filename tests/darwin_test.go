@@ -45,6 +45,6 @@ func TestDarwinInstallWritesPlist(t *testing.T) {
 	}
 	out := mustRun(t, bin, dataDir, "status")
 	if !strings.Contains(out, "supervised=yes") {
-		t.Fatalf("status should report supervised when plist present:\n%s", out)
+		t.Errorf("status output = %q, want substring %q", out, "supervised=yes")
 	}
 }

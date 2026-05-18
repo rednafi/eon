@@ -45,16 +45,16 @@ func ParseCron(expr string) (cron.Schedule, error) {
 	if rest, ok := strings.CutPrefix(expr, "@every "); ok {
 		d, err := time.ParseDuration(strings.TrimSpace(rest))
 		if err != nil {
-			return nil, fmt.Errorf("%w: @every duration: %s", ErrInvalidCron, err.Error())
+			return nil, fmt.Errorf("%w: @every duration: %w", ErrInvalidCron, err)
 		}
 		if d <= 0 {
-			return nil, fmt.Errorf("%w: @every duration must be positive (got %v)",
+			return nil, fmt.Errorf("%w: @every duration must be positive: got %v",
 				ErrInvalidCron, d)
 		}
 	}
 	sched, err := cronParser.Parse(expr)
 	if err != nil {
-		return nil, fmt.Errorf("%w: %s", ErrInvalidCron, err.Error())
+		return nil, fmt.Errorf("%w: %w", ErrInvalidCron, err)
 	}
 	cronCache.Store(expr, sched)
 	return sched, nil
@@ -95,16 +95,16 @@ func parseAtRaw(raw string, now time.Time) (time.Time, error) {
 	}
 
 	// Relative offset: +30m, +2h, +45s, +3d.
-	if strings.HasPrefix(raw, "+") {
-		return parseOffset(raw[1:], now)
+	if rest, ok := strings.CutPrefix(raw, "+"); ok {
+		return parseOffset(rest, now)
 	}
 
 	lower := strings.ToLower(raw)
-	switch {
-	case strings.HasPrefix(lower, "today "):
-		return parseClock(lower[len("today "):], now, 0)
-	case strings.HasPrefix(lower, "tomorrow "):
-		return parseClock(lower[len("tomorrow "):], now, 1)
+	if rest, ok := strings.CutPrefix(lower, "today "); ok {
+		return parseClock(rest, now, 0)
+	}
+	if rest, ok := strings.CutPrefix(lower, "tomorrow "); ok {
+		return parseClock(rest, now, 1)
 	}
 
 	return time.Time{}, fmt.Errorf("%w: %q", ErrInvalidTime, raw)
@@ -151,11 +151,10 @@ func parseClock(s string, now time.Time, dayOffsetDays int) (time.Time, error) {
 func parseHourMinute(s string) (hour, minute int, err error) {
 	low := strings.ToLower(s)
 	ampm := ""
-	switch {
-	case strings.HasSuffix(low, "am"):
-		ampm, low = "am", strings.TrimSpace(strings.TrimSuffix(low, "am"))
-	case strings.HasSuffix(low, "pm"):
-		ampm, low = "pm", strings.TrimSpace(strings.TrimSuffix(low, "pm"))
+	if rest, ok := strings.CutSuffix(low, "am"); ok {
+		ampm, low = "am", strings.TrimSpace(rest)
+	} else if rest, ok := strings.CutSuffix(low, "pm"); ok {
+		ampm, low = "pm", strings.TrimSpace(rest)
 	}
 
 	if h, m, ok := strings.Cut(low, ":"); ok {

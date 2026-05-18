@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/charmbracelet/fang"
+	"github.com/google/go-cmp/cmp"
 	"github.com/rednafi/eon"
 	"github.com/spf13/cobra"
 )
@@ -45,7 +46,7 @@ func TestCLIAddListShowRm(t *testing.T) {
 		t.Fatalf("add: %v", err)
 	}
 	if !strings.Contains(out, "added job ") {
-		t.Fatalf("add stdout = %q", out)
+		t.Errorf("add stdout = %q, want substring %q", out, "added job ")
 	}
 
 	out, _, err = runCmd(t, dir, "ls", "--json")
@@ -56,12 +57,22 @@ func TestCLIAddListShowRm(t *testing.T) {
 	if err := json.Unmarshal([]byte(out), &jobs); err != nil {
 		t.Fatalf("ls --json: %v\n%s", err, out)
 	}
-	if len(jobs) != 1 || jobs[0].Name != "backup" || jobs[0].Cron != "@hourly" {
-		t.Fatalf("ls --json returned %+v", jobs)
+	wantRows := []cliJobRow{{
+		Name:    "backup",
+		Kind:    eon.KindCron,
+		Command: []string{"echo", "hi"},
+		Cron:    "@hourly",
+		Status:  eon.StatusEnabled,
+	}}
+	if diff := cmp.Diff(wantRows, cliJobRows(jobs)); diff != "" {
+		t.Errorf("ls --json rows mismatch (-want +got):\n%s", diff)
+	}
+	if len(jobs) == 0 {
+		t.Fatalf("ls --json returned no jobs")
 	}
 	id := jobs[0].ID
 	if len(id) != 5 {
-		t.Fatalf("expected 5-char ID, got %q", id)
+		t.Fatalf("len(job ID) = %d, want 5; id=%q", len(id), id)
 	}
 
 	// show resolves by ID and by name.
@@ -75,7 +86,7 @@ func TestCLIAddListShowRm(t *testing.T) {
 			t.Fatalf("show %q --json: %v\n%s", ref, err, out)
 		}
 		if got.ID != id {
-			t.Fatalf("show %q id = %q, want %q", ref, got.ID, id)
+			t.Errorf("show %q id = %q, want %q", ref, got.ID, id)
 		}
 	}
 
@@ -84,8 +95,30 @@ func TestCLIAddListShowRm(t *testing.T) {
 		t.Fatalf("rm: %v", err)
 	}
 	if !strings.Contains(out, "deleted job "+string(id)) {
-		t.Fatalf("rm stdout = %q", out)
+		t.Errorf("rm stdout = %q, want substring %q", out, "deleted job "+string(id))
 	}
+}
+
+type cliJobRow struct {
+	Name    string
+	Kind    eon.JobKind
+	Command []string
+	Cron    string
+	Status  eon.JobStatus
+}
+
+func cliJobRows(jobs []eon.Job) []cliJobRow {
+	rows := make([]cliJobRow, 0, len(jobs))
+	for _, job := range jobs {
+		rows = append(rows, cliJobRow{
+			Name:    job.Name,
+			Kind:    job.Kind,
+			Command: job.Command,
+			Cron:    job.Cron,
+			Status:  job.Status,
+		})
+	}
+	return rows
 }
 
 func TestInjectedVersionWinsOverFangBuildInfo(t *testing.T) {
@@ -158,7 +191,7 @@ func TestCLIExitCodesForBadInput(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			_, _, err := runCmd(t, dir, tc.argv...)
 			if got := exitCode(err); got != tc.want {
-				t.Fatalf("exit = %d, want %d (err=%v)", got, tc.want, err)
+				t.Errorf("exit = %d, want %d (err=%v)", got, tc.want, err)
 			}
 		})
 	}
@@ -175,10 +208,10 @@ func TestCLIStatusJSON(t *testing.T) {
 		t.Fatalf("decode: %v\n%s", err, out)
 	}
 	if s.Daemon.Running {
-		t.Fatalf("daemon should not be running in fresh tempdir")
+		t.Errorf("daemon running = true, want false")
 	}
 	if s.DBPath == "" {
-		t.Fatalf("DBPath missing")
+		t.Errorf("DBPath = %q, want non-empty", s.DBPath)
 	}
 }
 
@@ -189,7 +222,7 @@ func TestCLIStopIdempotent(t *testing.T) {
 		t.Fatalf("stop: %v", err)
 	}
 	if !strings.Contains(out, "no daemon running") {
-		t.Fatalf("stop stdout = %q", out)
+		t.Errorf("stop stdout = %q, want substring %q", out, "no daemon running")
 	}
 }
 
@@ -201,19 +234,29 @@ func TestCLIEnableDisableRoundtrip(t *testing.T) {
 	if _, _, err := runCmd(t, dir, "disable", "toggle"); err != nil {
 		t.Fatalf("disable: %v", err)
 	}
-	out, _, _ := runCmd(t, dir, "show", "toggle", "--json")
+	out, _, err := runCmd(t, dir, "show", "toggle", "--json")
+	if err != nil {
+		t.Fatalf("show after disable: %v", err)
+	}
 	var got eon.Job
-	_ = json.Unmarshal([]byte(out), &got)
+	if err := json.Unmarshal([]byte(out), &got); err != nil {
+		t.Fatalf("decode show after disable: %v", err)
+	}
 	if got.Status != eon.StatusDisabled {
-		t.Fatalf("after disable: status=%s", got.Status)
+		t.Errorf("after disable: status = %s, want %s", got.Status, eon.StatusDisabled)
 	}
 	if _, _, err := runCmd(t, dir, "enable", "toggle"); err != nil {
 		t.Fatalf("enable: %v", err)
 	}
-	out, _, _ = runCmd(t, dir, "show", "toggle", "--json")
-	_ = json.Unmarshal([]byte(out), &got)
+	out, _, err = runCmd(t, dir, "show", "toggle", "--json")
+	if err != nil {
+		t.Fatalf("show after enable: %v", err)
+	}
+	if err := json.Unmarshal([]byte(out), &got); err != nil {
+		t.Fatalf("decode show after enable: %v", err)
+	}
 	if got.Status != eon.StatusEnabled {
-		t.Fatalf("after enable: status=%s", got.Status)
+		t.Errorf("after enable: status = %s, want %s", got.Status, eon.StatusEnabled)
 	}
 }
 

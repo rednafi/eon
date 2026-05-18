@@ -67,8 +67,13 @@ const runCols = `id, job_id, started_at, finished_at, exit_code, status`
 //   - RetentionMaxTotal: cap the whole runs table.
 //     Oldest rows are trimmed across all jobs until the total fits.
 const (
-	RetentionPerJob   = 100
-	RetentionMaxAge   = 100 * 24 * time.Hour
+	// RetentionPerJob is the default number of most-recent runs to keep per job.
+	RetentionPerJob = 100
+
+	// RetentionMaxAge is the default maximum age for retained run history.
+	RetentionMaxAge = 100 * 24 * time.Hour
+
+	// RetentionMaxTotal is the default cap for all retained run rows.
 	RetentionMaxTotal = 144_000
 )
 
@@ -245,10 +250,16 @@ func columnExists(ctx context.Context, db *sql.DB, table, column string) (bool, 
 	return rows.Next(), rows.Err()
 }
 
+// DataDir returns the directory that contains the store database.
 func (s *Store) DataDir() string { return s.dataDir }
-func (s *Store) DBPath() string  { return s.dbPath }
-func (s *Store) Close() error    { return s.db.Close() }
 
+// DBPath returns the SQLite database path, or :memory: for test stores.
+func (s *Store) DBPath() string { return s.dbPath }
+
+// Close releases the underlying SQLite handle.
+func (s *Store) Close() error { return s.db.Close() }
+
+// AddJob validates and inserts a new enabled job.
 func (s *Store) AddJob(ctx context.Context, spec eon.JobSpec, now time.Time) (eon.Job, error) {
 	cmdJSON, err := json.Marshal(spec.Command)
 	if err != nil {
@@ -321,6 +332,7 @@ func isUniqueViolation(err error) bool {
 	return ok && se.Code()&0xff == sqliteConstraint
 }
 
+// Job returns the job with id.
 func (s *Store) Job(ctx context.Context, id eon.JobID) (eon.Job, error) {
 	q := `SELECT ` + jobCols + ` FROM jobs WHERE id = ?`
 	row := s.db.QueryRowContext(ctx, q, string(id))
@@ -345,6 +357,7 @@ func (s *Store) JobByName(ctx context.Context, name string) (eon.Job, error) {
 	return job, err
 }
 
+// ListJobs returns jobs matching opts.
 func (s *Store) ListJobs(ctx context.Context, opts ListOpts) ([]eon.Job, error) {
 	q := `SELECT ` + jobCols + ` FROM jobs`
 	var (
@@ -391,12 +404,17 @@ func (s *Store) ListJobs(ctx context.Context, opts ListOpts) ([]eon.Job, error) 
 	return out, rows.Err()
 }
 
+// DeleteJob removes the job with id.
 func (s *Store) DeleteJob(ctx context.Context, id eon.JobID) error {
 	res, err := s.db.ExecContext(ctx, `DELETE FROM jobs WHERE id = ?`, string(id))
 	if err != nil {
 		return fmt.Errorf("delete job: %w", err)
 	}
-	if n, _ := res.RowsAffected(); n == 0 {
+	n, err := res.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("delete job rows affected: %w", err)
+	}
+	if n == 0 {
 		return fmt.Errorf("%w: job %q", eon.ErrNotFound, id)
 	}
 	return nil
@@ -417,7 +435,11 @@ func (s *Store) SetJobStatus(ctx context.Context, id eon.JobID, status eon.JobSt
 	if err != nil {
 		return fmt.Errorf("set status: %w", err)
 	}
-	if n, _ := res.RowsAffected(); n == 0 {
+	n, err := res.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("set status rows affected: %w", err)
+	}
+	if n == 0 {
 		return fmt.Errorf("%w: job %q", eon.ErrNotFound, id)
 	}
 	return nil
@@ -439,7 +461,11 @@ func (s *Store) AdvanceNextFire(ctx context.Context, id eon.JobID, next time.Tim
 	if err != nil {
 		return fmt.Errorf("advance next_fire_at: %w", err)
 	}
-	if n, _ := res.RowsAffected(); n == 0 {
+	n, err := res.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("advance next_fire_at rows affected: %w", err)
+	}
+	if n == 0 {
 		return fmt.Errorf("%w: job %q", eon.ErrNotFound, id)
 	}
 	return nil
@@ -487,6 +513,7 @@ func (s *Store) SoonestDeadline(ctx context.Context, now time.Time) (time.Time, 
 	return time.Unix(0, nano).UTC(), nil
 }
 
+// MarkJobRan updates the denormalized last-run fields on a job.
 func (s *Store) MarkJobRan(ctx context.Context, id eon.JobID, status eon.RunStatus, at time.Time) error {
 	_, err := s.db.ExecContext(ctx,
 		`UPDATE jobs SET last_run_at = ?, last_status = ?, updated_at = ? WHERE id = ?`,
@@ -527,6 +554,7 @@ func (s *Store) RecordRun(ctx context.Context, jobID eon.JobID, startedAt, finis
 	}, nil
 }
 
+// RecordOverlap records a skipped recurring fire for jobID.
 func (s *Store) RecordOverlap(ctx context.Context, jobID eon.JobID, at time.Time) error {
 	const q = `INSERT INTO runs (job_id, started_at, finished_at, exit_code, status)
 		VALUES (?, ?, ?, 0, ?)`
@@ -537,6 +565,7 @@ func (s *Store) RecordOverlap(ctx context.Context, jobID eon.JobID, at time.Time
 	return nil
 }
 
+// ListRuns returns the newest runs for jobID.
 func (s *Store) ListRuns(ctx context.Context, jobID eon.JobID, limit int) ([]eon.Run, error) {
 	if limit <= 0 {
 		limit = 100
@@ -599,6 +628,7 @@ func (s *Store) ListRunsAfter(ctx context.Context, jobID eon.JobID, afterID int6
 	return out, rows.Err()
 }
 
+// LatestRun returns the newest run for jobID.
 func (s *Store) LatestRun(ctx context.Context, jobID eon.JobID) (eon.Run, error) {
 	q := `SELECT ` + runCols + ` FROM runs WHERE job_id = ? ORDER BY started_at DESC, id DESC LIMIT 1`
 	row := s.db.QueryRowContext(ctx, q, string(jobID))
@@ -609,6 +639,7 @@ func (s *Store) LatestRun(ctx context.Context, jobID eon.JobID) (eon.Run, error)
 	return run, err
 }
 
+// OpenRunLog returns the captured output for runID.
 func (s *Store) OpenRunLog(ctx context.Context, runID int64) (io.ReadCloser, error) {
 	var out []byte
 	err := s.db.QueryRowContext(ctx, `SELECT output FROM runs WHERE id = ?`, runID).Scan(&out)
