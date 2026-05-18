@@ -43,7 +43,7 @@ Requires sqlite3 on PATH.`,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			sqlite, err := exec.LookPath("sqlite3")
 			if err != nil {
-				return fmt.Errorf("sqlite3 not on PATH: %w (install it to use this command)", err)
+				return fmt.Errorf("sqlite3 not on PATH: %w; install it to use this command", err)
 			}
 			dir, err := dataDir()
 			if err != nil {

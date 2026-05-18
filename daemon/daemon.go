@@ -126,17 +126,22 @@ func readLockContents(f *os.File) (int, time.Time, error) {
 	if err != nil {
 		return 0, time.Time{}, err
 	}
-	lines := strings.SplitN(strings.TrimSpace(string(buf)), "\n", 2)
-	if len(lines) == 0 || lines[0] == "" {
+	pidText, startedText, _ := strings.Cut(strings.TrimSpace(string(buf)), "\n")
+	if pidText == "" {
 		return 0, time.Time{}, nil
 	}
-	pid, err := strconv.Atoi(strings.TrimSpace(lines[0]))
+	pid, err := strconv.Atoi(strings.TrimSpace(pidText))
 	if err != nil {
 		return 0, time.Time{}, fmt.Errorf("parse pid: %w", err)
 	}
 	var startedAt time.Time
-	if len(lines) > 1 {
-		if ns, _ := strconv.ParseInt(strings.TrimSpace(lines[1]), 10, 64); ns > 0 {
+	startedText = strings.TrimSpace(startedText)
+	if startedText != "" {
+		ns, err := strconv.ParseInt(startedText, 10, 64)
+		if err != nil {
+			return 0, time.Time{}, fmt.Errorf("parse start time: %w", err)
+		}
+		if ns > 0 {
 			startedAt = time.Unix(0, ns).UTC()
 		}
 	}
@@ -171,15 +176,21 @@ func StopDaemon(dataDir string, timeout time.Duration) (running, gracefully bool
 		return running, false, err
 	}
 	if err := syscall.Kill(pid, syscall.SIGTERM); err != nil && !errors.Is(err, os.ErrProcessDone) {
-		return true, false, fmt.Errorf("SIGTERM %d: %w", pid, err)
+		return true, false, fmt.Errorf("signal SIGTERM to %d: %w", pid, err)
 	}
 	deadline := time.Now().Add(timeout)
 	for time.Now().Before(deadline) {
-		if _, _, alive, _ := ProbeRunLock(dataDir); !alive {
+		_, _, alive, err := ProbeRunLock(dataDir)
+		if err != nil {
+			return true, false, fmt.Errorf("probe daemon: %w", err)
+		}
+		if !alive {
 			return true, true, nil
 		}
 		time.Sleep(100 * time.Millisecond)
 	}
-	_ = syscall.Kill(pid, syscall.SIGKILL)
+	if err := syscall.Kill(pid, syscall.SIGKILL); err != nil && !errors.Is(err, os.ErrProcessDone) {
+		return true, false, fmt.Errorf("signal SIGKILL to %d: %w", pid, err)
+	}
 	return true, false, nil
 }

@@ -135,7 +135,7 @@ time is rejected with exit code 5.`,
 				return usageErrf("provide exactly one of --cron or --at")
 			}
 			if cmd.ArgsLenAtDash() < 0 {
-				return usageErrf("place the command after '--' (e.g. `eon add --cron '@hourly' -- /bin/echo hi`)")
+				return usageErrf("place the command after '--', for example `eon add --cron '@hourly' -- /bin/echo hi`")
 			}
 			if err := checkAbsExecutable(args); err != nil {
 				return err
@@ -204,7 +204,7 @@ func checkAbsExecutable(args []string) error {
 	}
 	info, err := os.Stat(bin)
 	if errors.Is(err, fs.ErrNotExist) {
-		return usageErrf("command not found: %s (use a path that exists, or a bare name resolvable on PATH)", bin)
+		return usageErrf("command not found: %s; use a path that exists or a bare name resolvable on PATH", bin)
 	}
 	if err != nil {
 		return usageErrf("command %s: %v", bin, err)
@@ -213,7 +213,7 @@ func checkAbsExecutable(args []string) error {
 		return usageErrf("command %s is a directory, not an executable", bin)
 	}
 	if info.Mode()&0o111 == 0 {
-		return usageErrf("command %s is not executable (chmod +x?)", bin)
+		return usageErrf("command %s is not executable; run chmod +x first", bin)
 	}
 	return nil
 }

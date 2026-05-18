@@ -33,6 +33,7 @@ type ExecRunner struct {
 	GracePeriod time.Duration
 }
 
+// Run executes job and writes merged stdout and stderr to out.
 func (e ExecRunner) Run(ctx context.Context, job eon.Job, out io.Writer) (int, error) {
 	if len(job.Command) == 0 {
 		return -1, errors.New("scheduler: empty command")
@@ -78,7 +79,9 @@ func (e ExecRunner) Run(ctx context.Context, job eon.Job, out io.Writer) (int, e
 	// The process never started.
 	//
 	// Persist the reason so `eon logs` can show it.
-	_, _ = fmt.Fprintf(out, "eon: failed to start: %v\n", err)
+	if _, writeErr := fmt.Fprintf(out, "eon: failed to start: %v\n", err); writeErr != nil {
+		return -1, errors.Join(err, writeErr)
+	}
 	return -1, err
 }
 

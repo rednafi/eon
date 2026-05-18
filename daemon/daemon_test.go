@@ -12,7 +12,7 @@ func TestDataDir(t *testing.T) {
 		t.Fatalf("DataDir: %v", err)
 	}
 	if dir == "" {
-		t.Fatalf("DataDir returned empty")
+		t.Errorf("DataDir() = %q, want non-empty", dir)
 	}
 }
 
@@ -36,7 +36,7 @@ func TestAcquireRunLockHappyPath(t *testing.T) {
 		t.Fatalf("ProbeRunLock saw no holder")
 	}
 	if pid != os.Getpid() {
-		t.Fatalf("ProbeRunLock pid = %d, want %d", pid, os.Getpid())
+		t.Errorf("ProbeRunLock pid = %d, want %d", pid, os.Getpid())
 	}
 }
 
@@ -54,7 +54,7 @@ func TestAcquireRunLockConflict(t *testing.T) {
 		t.Fatalf("second acquire error: %v", err)
 	}
 	if second != nil {
-		t.Fatalf("second AcquireRunLock returned a release; expected nil")
+		t.Errorf("second AcquireRunLock returned release, want nil")
 	}
 }
 
@@ -65,7 +65,7 @@ func TestProbeRunLockEmpty(t *testing.T) {
 		t.Fatalf("ProbeRunLock empty: %v", err)
 	}
 	if running || pid != 0 {
-		t.Fatalf("empty dir reports running=%v pid=%d", running, pid)
+		t.Errorf("ProbeRunLock empty = running %v, pid %d; want false, 0", running, pid)
 	}
 }
 
@@ -73,7 +73,7 @@ func TestProbeRunLockAfterRelease(t *testing.T) {
 	dir := t.TempDir()
 	release, err := AcquireRunLock(dir)
 	if err != nil {
-		t.Fatal(err)
+		t.Fatalf("AcquireRunLock: %v", err)
 	}
 	release()
 
@@ -82,7 +82,7 @@ func TestProbeRunLockAfterRelease(t *testing.T) {
 		t.Fatalf("ProbeRunLock after release: %v", err)
 	}
 	if running {
-		t.Fatalf("expected released")
+		t.Errorf("ProbeRunLock after release running = %v, want false", running)
 	}
 }
 
@@ -93,6 +93,6 @@ func TestSignalDaemonNoDaemon(t *testing.T) {
 		t.Fatalf("SignalDaemon: %v", err)
 	}
 	if sent {
-		t.Fatalf("SignalDaemon claimed it signalled a non-existent daemon")
+		t.Errorf("SignalDaemon sent = %v, want false", sent)
 	}
 }

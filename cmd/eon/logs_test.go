@@ -43,7 +43,7 @@ func TestStreamLogsFollowEmitsEveryRunBetweenPolls(t *testing.T) {
 	if !waitForCmdTest(2*time.Second, func() bool {
 		return strings.Contains(out.String(), "run #"+strconv.FormatInt(seed.ID, 10))
 	}) {
-		t.Fatalf("follow did not emit initial run:\n%s", out.String())
+		t.Errorf("follow output = %q, want initial run #%d", out.String(), seed.ID)
 	}
 
 	first, err := st.RecordRun(t.Context(), job.ID, now.Add(time.Second), now.Add(time.Second), 0, eon.RunOK, []byte("first\n"))
@@ -62,7 +62,7 @@ func TestStreamLogsFollowEmitsEveryRunBetweenPolls(t *testing.T) {
 			strings.Contains(got, "first\n") &&
 			strings.Contains(got, "second\n")
 	}) {
-		t.Fatalf("follow output skipped a run:\n%s", out.String())
+		t.Errorf("follow output = %q, want runs #%d and #%d", out.String(), first.ID, second.ID)
 	}
 
 	cancel()

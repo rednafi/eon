@@ -35,11 +35,11 @@ func TestServiceEnableCronSchedulesFromNow(t *testing.T) {
 		t.Fatalf("Job: %v", err)
 	}
 	if !got.NextFireAt.After(beforeEnable) {
-		t.Fatalf("next_fire_at = %s, want a future fire after enable time %s",
+		t.Errorf("next_fire_at = %s, want a future fire after enable time %s",
 			got.NextFireAt.Format(time.RFC3339Nano), beforeEnable.Format(time.RFC3339Nano))
 	}
 	if got.NextFireAt.After(beforeEnable.Add(time.Hour + 2*time.Second)) {
-		t.Fatalf("next_fire_at = %s, want next hourly fire near now",
+		t.Errorf("next_fire_at = %s, want next hourly fire near now",
 			got.NextFireAt.Format(time.RFC3339Nano))
 	}
 }
