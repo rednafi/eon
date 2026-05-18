@@ -3,28 +3,47 @@ package eon
 
 import "time"
 
-// JobID is a 5-character alphanumeric handle assigned at insert time.
 type (
-	JobID     string
-	JobKind   string
+	// JobID is a 5-character alphanumeric handle assigned at insert time.
+	JobID string
+
+	// JobKind identifies whether a job is recurring or one-shot.
+	JobKind string
+
+	// JobStatus identifies whether a job can still fire.
 	JobStatus string
+
+	// RunStatus identifies the outcome of a recorded run.
 	RunStatus string
 )
 
 const (
-	KindCron    JobKind = "cron"
+	// KindCron is a recurring cron-style job.
+	KindCron JobKind = "cron"
+
+	// KindOneshot is a job scheduled for one wall-clock instant.
 	KindOneshot JobKind = "oneshot"
 )
 
 const (
-	StatusEnabled  JobStatus = "enabled"
+	// StatusEnabled means the scheduler may fire the job.
+	StatusEnabled JobStatus = "enabled"
+
+	// StatusDisabled means the scheduler must skip the job.
 	StatusDisabled JobStatus = "disabled"
-	StatusDone     JobStatus = "done" // one-shot only, after firing
+
+	// StatusDone means a one-shot job has already fired.
+	StatusDone JobStatus = "done"
 )
 
 const (
-	RunOK             RunStatus = "ok"
-	RunFail           RunStatus = "fail"
+	// RunOK means a command exited successfully.
+	RunOK RunStatus = "ok"
+
+	// RunFail means a command failed to start or exited non-zero.
+	RunFail RunStatus = "fail"
+
+	// RunSkippedOverlap means a recurring fire was skipped because the prior run was active.
 	RunSkippedOverlap RunStatus = "skipped_overlap"
 )
 
